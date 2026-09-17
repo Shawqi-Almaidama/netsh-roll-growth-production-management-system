@@ -339,53 +339,113 @@ export function initializeDatabase() {
 }
 
 function syncTeamUsers() {
-  const teamUsers = [
-    { username: 'shawqi', alias: 'admin', name: 'شوقي الميدمة', email: 'shawqi@naturalgrowth.com', role: 'ADMIN', branch_id: 1 },
-    { username: 'ahmed_saber', alias: 'prod_manager', name: 'أحمد صبر', email: 'ahmed_saber@naturalgrowth.com', role: 'PROD_MGR', branch_id: 1 },
-    { username: 'mohammed_a', alias: 'sales_user', name: 'محمد الأعوج', email: 'mohammed@naturalgrowth.com', role: 'SALES_OFFICER', branch_id: 1 },
-    { username: 'rayan_m', alias: 'warehouse_user', name: 'ريان موسى', email: 'rayan@naturalgrowth.com', role: 'WAREHOUSE_KEEPER', branch_id: 1 },
-    { username: 'maher_n', alias: 'accountant1', name: 'ماهر نضير', email: 'maher@naturalgrowth.com', role: 'ACCOUNTANT', branch_id: 1 },
-    { username: 'supervisor1', alias: 'super_prod', name: 'مشرف الإنتاج', email: 'supervisor@naturalgrowth.com', role: 'SUPERVISOR', branch_id: 1 }
-  ];
+  // Ensure roles exist with exact titles
+  const insertOrUpdateRole = db.prepare(`
+    INSERT INTO ROLES (role_code, role_name_ar, description, permissions)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(role_code) DO UPDATE SET role_name_ar = excluded.role_name_ar, description = excluded.description
+  `);
 
-  // Update role names cleanly without academic labels
-  const updateRole = db.prepare('UPDATE ROLES SET role_name_ar = ? WHERE role_code = ?');
-  updateRole.run('مدير النظام', 'ADMIN');
-  updateRole.run('مدير قسم الإنتاج', 'PROD_MGR');
-  updateRole.run('مسؤول المبيعات والفواتير', 'SALES_OFFICER');
-  updateRole.run('أمين المخازن', 'WAREHOUSE_KEEPER');
-  updateRole.run('المحاسب المالي', 'ACCOUNTANT');
-  updateRole.run('مشرف الإنتاج', 'SUPERVISOR');
+  insertOrUpdateRole.run('ADMIN', 'مدير النظام', 'الإشراف الشامل، إدارة المستخدمين، الأدوار، الصلاحيات، والسجلات التاريخية', JSON.stringify(['ALL_PERMISSIONS']));
+  insertOrUpdateRole.run('PROD_MANAGER', 'مدير قسم الإنتاج', 'مراجعة واعتماد ورفض طلبات الاحتياج، متابعة الهناجر والإنتاج والتقارير التشغيلية', JSON.stringify(['VIEW_HOUSES', 'VIEW_FLOCKS', 'VIEW_DAILY_PROD', 'REVIEW_REQUISITION', 'APPROVE_REQUISITION', 'VIEW_REPORTS', 'VIEW_DASHBOARD']));
+  insertOrUpdateRole.run('PROD_MGR', 'مدير قسم الإنتاج', 'مراجعة واعتماد ورفض طلبات الاحتياج، متابعة الهناجر والإنتاج والتقارير التشغيلية', JSON.stringify(['VIEW_HOUSES', 'VIEW_FLOCKS', 'VIEW_DAILY_PROD', 'REVIEW_REQUISITION', 'APPROVE_REQUISITION', 'VIEW_REPORTS', 'VIEW_DASHBOARD']));
+  insertOrUpdateRole.run('SALES_OFFICER', 'مسؤول المبيعات والفواتير', 'إدارة المنتجات والعملاء، وإصدار فواتير المبيعات مع التحقق من توفر المخزون', JSON.stringify(['VIEW_PRODUCTS', 'MANAGE_PRODUCTS', 'VIEW_CUSTOMERS', 'MANAGE_CUSTOMERS', 'CREATE_SALES_INVOICE', 'VIEW_SALES_INVOICE']));
+  insertOrUpdateRole.run('WAREHOUSE_KEEPER', 'أمين المخازن', 'إدارة توريد المنتجات للمخازن، وإصدار سندات التوريد وتحديث أرصدة المخزون', JSON.stringify(['VIEW_WAREHOUSES', 'CREATE_WAREHOUSE_RECEIPT', 'VIEW_WAREHOUSE_RECEIPTS', 'VIEW_PRODUCTS']));
+  insertOrUpdateRole.run('ACCOUNTANT', 'المحاسب المالي', 'الاطلاع على فواتير المبيعات، سندات التوريد، والتقارير التشغيلية المعتمدة', JSON.stringify(['VIEW_SALES_INVOICE', 'VIEW_WAREHOUSE_RECEIPTS', 'VIEW_REPORTS', 'VIEW_DASHBOARD']));
+  insertOrUpdateRole.run('SUPERVISOR', 'مشرف الإنتاج', 'إدارة الهناجر والقطعان، تسجيل الإنتاج اليومي، إنشاء ومتابعة طلبات الاحتياج', JSON.stringify(['VIEW_HOUSES', 'MANAGE_HOUSES', 'VIEW_FLOCKS', 'MANAGE_FLOCKS', 'MANAGE_DAILY_PROD', 'CREATE_REQUISITION', 'VIEW_OWN_REQUISITIONS']));
+
+  // The 6 Approved Users (Single source of truth)
+  const approvedUsers = [
+    { username: 'admin', name: 'شوقي الميدمة', email: 'admin@naturalgrowth.com', role: 'ADMIN', branch_id: 1 },
+    { username: 'ahmed_saber', name: 'أحمد صبر', email: 'ahmed_saber@naturalgrowth.com', role: 'PROD_MANAGER', branch_id: 1 },
+    { username: 'mohammed_a', name: 'محمد الأعوج', email: 'mohammed@naturalgrowth.com', role: 'SALES_OFFICER', branch_id: 1 },
+    { username: 'rayan_m', name: 'ريان موسى', email: 'rayan@naturalgrowth.com', role: 'WAREHOUSE_KEEPER', branch_id: 1 },
+    { username: 'maher_n', name: 'ماهر نضير', email: 'maher@naturalgrowth.com', role: 'ACCOUNTANT', branch_id: 1 },
+    { username: 'supervisor1', name: 'مشرف الإنتاج', email: 'supervisor@naturalgrowth.com', role: 'SUPERVISOR', branch_id: 1 }
+  ];
 
   const { hash, salt } = hashPassword('123456');
 
-  for (const u of teamUsers) {
-    // Check main username
+  // 1. Ensure all 6 approved users exist and have updated credentials/role
+  for (const u of approvedUsers) {
     const existing = db.prepare('SELECT id FROM USERS WHERE username = ?').get(u.username) as { id: number } | undefined;
     if (existing) {
-      db.prepare('UPDATE USERS SET full_name = ?, role_code = ?, email = ? WHERE id = ?')
+      db.prepare('UPDATE USERS SET full_name = ?, role_code = ?, email = ?, is_active = 1 WHERE id = ?')
         .run(u.name, u.role, u.email, existing.id);
     } else {
       db.prepare(`
-        INSERT INTO USERS (username, password_hash, salt, full_name, email, phone, role_code, branch_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO USERS (username, password_hash, salt, full_name, email, phone, role_code, branch_id, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
       `).run(u.username, hash, salt, u.name, u.email, '0500123456', u.role, u.branch_id);
     }
+  }
 
-    // Check alias username for backward compatibility
-    if (u.alias) {
-      const existingAlias = db.prepare('SELECT id FROM USERS WHERE username = ?').get(u.alias) as { id: number } | undefined;
-      if (existingAlias) {
-        db.prepare('UPDATE USERS SET full_name = ?, role_code = ?, email = ? WHERE id = ?')
-          .run(u.name, u.role, u.email, existingAlias.id);
-      } else {
-        db.prepare(`
-          INSERT INTO USERS (username, password_hash, salt, full_name, email, phone, role_code, branch_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(u.alias, hash, salt, u.name, u.email, '0500123456', u.role, u.branch_id);
+  // 2. Fetch approved user IDs map
+  const userMap: Record<string, number> = {};
+  for (const u of approvedUsers) {
+    const rec = db.prepare('SELECT id FROM USERS WHERE username = ?').get(u.username) as { id: number };
+    if (rec) userMap[u.username] = rec.id;
+  }
+
+  // 3. Remap references from legacy duplicate accounts to approved accounts
+  const legacyAliases: [string, string][] = [
+    ['shawqi', 'admin'],
+    ['prod_manager', 'ahmed_saber'],
+    ['sales_user', 'mohammed_a'],
+    ['warehouse_user', 'rayan_m'],
+    ['accountant1', 'maher_n'],
+    ['super_prod', 'supervisor1']
+  ];
+
+  for (const [legacyUsername, targetUsername] of legacyAliases) {
+    const legacyRec = db.prepare('SELECT id FROM USERS WHERE username = ?').get(legacyUsername) as { id: number } | undefined;
+    const targetId = userMap[targetUsername];
+    if (legacyRec && targetId) {
+      const legacyId = legacyRec.id;
+      try {
+        db.prepare('UPDATE REQUISITIONS SET requester_id = ? WHERE requester_id = ?').run(targetId, legacyId);
+        db.prepare('UPDATE REQUISITIONS SET reviewer_id = ? WHERE reviewer_id = ?').run(targetId, legacyId);
+        db.prepare('UPDATE DAILY_PRODUCTION SET supervisor_id = ? WHERE supervisor_id = ?').run(targetId, legacyId);
+        db.prepare('UPDATE SALES_INVOICES SET user_id = ? WHERE user_id = ?').run(targetId, legacyId);
+        db.prepare('UPDATE WAREHOUSE_RECEIPTS SET received_by = ? WHERE received_by = ?').run(targetId, legacyId);
+        db.prepare('UPDATE NOTIFICATIONS SET user_id = ? WHERE user_id = ?').run(targetId, legacyId);
+        db.prepare('UPDATE SUPERVISORS SET user_id = ? WHERE user_id = ?').run(targetId, legacyId);
+      } catch (e) {
+        console.error('Error reassigning user references:', e);
       }
     }
   }
+
+  // Ensure supervisor, requisition, and production references point directly to the correct role holders
+  if (userMap['supervisor1']) {
+    db.prepare('UPDATE SUPERVISORS SET user_id = ? WHERE user_id != ?').run(userMap['supervisor1'], userMap['supervisor1']);
+    db.prepare('UPDATE DAILY_PRODUCTION SET supervisor_id = ? WHERE supervisor_id NOT IN (SELECT id FROM USERS)').run(userMap['supervisor1']);
+  }
+  if (userMap['ahmed_saber']) {
+    db.prepare("UPDATE REQUISITIONS SET reviewer_id = ? WHERE reviewer_id IS NOT NULL AND reviewer_id NOT IN (SELECT id FROM USERS)").run(userMap['ahmed_saber']);
+  }
+  if (userMap['mohammed_a']) {
+    db.prepare("UPDATE SALES_INVOICES SET user_id = ? WHERE user_id NOT IN (SELECT id FROM USERS)").run(userMap['mohammed_a']);
+  }
+  if (userMap['rayan_m']) {
+    db.prepare("UPDATE WAREHOUSE_RECEIPTS SET received_by = ? WHERE received_by NOT IN (SELECT id FROM USERS)").run(userMap['rayan_m']);
+  }
+
+  // 4. Permanently delete the 6 duplicate legacy user accounts
+  db.prepare(`
+    DELETE FROM USERS WHERE username IN ('shawqi', 'prod_manager', 'sales_user', 'warehouse_user', 'accountant1', 'super_prod')
+  `).run();
+
+  // Ensure prices are consistently formatted in Yemeni Rial (YER)
+  db.prepare("UPDATE PRODUCTS SET unit_price = 4500.0 WHERE product_code = 'PRD-EGGS-B30' AND unit_price < 100").run();
+  db.prepare("UPDATE PRODUCTS SET unit_price = 4200.0 WHERE product_code = 'PRD-EGGS-W30' AND unit_price < 100").run();
+  db.prepare("UPDATE PRODUCTS SET unit_price = 3200.0 WHERE product_code = 'PRD-CHK-LIVE' AND unit_price < 100").run();
+  db.prepare("UPDATE PRODUCTS SET unit_price = 3800.0 WHERE product_code = 'PRD-CHK-CHILL' AND unit_price < 100").run();
+  db.prepare("UPDATE PRODUCTS SET unit_price = 950.0 WHERE product_code = 'PRD-CHICKS-DOC' AND unit_price < 100").run();
+  db.prepare("UPDATE SALES_INVOICES SET subtotal = 1350000.0, total_amount = 1350000.0 WHERE invoice_no = 'INV-20260914-001' AND total_amount < 10000").run();
+  db.prepare("UPDATE INVOICE_LINES SET unit_price = 4500.0, line_total = 1350000.0 WHERE invoice_id = 1 AND unit_price < 100").run();
+  db.prepare("UPDATE CUSTOMERS SET address = 'شارع الستين - صنعاء' WHERE customer_code = 'CUST-102'").run();
+  db.prepare("UPDATE CUSTOMERS SET address = 'شارع حدة - مجمع المطاعم - صنعاء' WHERE customer_code = 'CUST-103'").run();
 }
 
 function seedInitialData() {
@@ -401,6 +461,12 @@ function seedInitialData() {
       name_ar: 'مشرف الإنتاج',
       desc: 'إدارة الهناجر والقطعان، تسجيل الإنتاج اليومي، إنشاء ومتابعة طلبات الاحتياج',
       perms: JSON.stringify(['VIEW_HOUSES', 'MANAGE_HOUSES', 'VIEW_FLOCKS', 'MANAGE_FLOCKS', 'MANAGE_DAILY_PROD', 'CREATE_REQUISITION', 'VIEW_OWN_REQUISITIONS'])
+    },
+    {
+      code: 'PROD_MANAGER',
+      name_ar: 'مدير قسم الإنتاج',
+      desc: 'مراجعة واعتماد ورفض طلبات الاحتياج، متابعة الهناجر والإنتاج والتقارير التشغيلية',
+      perms: JSON.stringify(['VIEW_HOUSES', 'VIEW_FLOCKS', 'VIEW_DAILY_PROD', 'REVIEW_REQUISITION', 'APPROVE_REQUISITION', 'VIEW_REPORTS', 'VIEW_DASHBOARD'])
     },
     {
       code: 'PROD_MGR',
@@ -444,14 +510,14 @@ function seedInitialData() {
   insertBranch.run('BR-HQ', 'الفرع الرئيسي - نتش رول جروث', 'المنطقة الصناعية الزراعية - قطاع أ', '0112233445');
   insertBranch.run('BR-NORTH', 'فرع مزارع المنطقة الشمالية', 'محافظة المزارع - وادي النخيل', '0112233446');
 
-  // 3. Team Member Users (Actual Project Team Members)
+  // 3. Team Member Users (Actual Project Team Members - 6 Approved Users)
   const teamUsers = [
-    { username: 'shawqi', alias: 'admin', name: 'شوقي الميدمة', email: 'shawqi@naturalgrowth.com', role: 'ADMIN', branch_id: 1 },
-    { username: 'ahmed_saber', alias: 'prod_manager', name: 'أحمد صبر', email: 'ahmed_saber@naturalgrowth.com', role: 'PROD_MGR', branch_id: 1 },
-    { username: 'mohammed_a', alias: 'sales_user', name: 'محمد الأعوج', email: 'mohammed@naturalgrowth.com', role: 'SALES_OFFICER', branch_id: 1 },
-    { username: 'rayan_m', alias: 'warehouse_user', name: 'ريان موسى', email: 'rayan@naturalgrowth.com', role: 'WAREHOUSE_KEEPER', branch_id: 1 },
-    { username: 'maher_n', alias: 'accountant1', name: 'ماهر نضير', email: 'maher@naturalgrowth.com', role: 'ACCOUNTANT', branch_id: 1 },
-    { username: 'supervisor1', alias: 'super_prod', name: 'مشرف الإنتاج', email: 'supervisor@naturalgrowth.com', role: 'SUPERVISOR', branch_id: 1 }
+    { username: 'admin', name: 'شوقي الميدمة', email: 'admin@naturalgrowth.com', role: 'ADMIN', branch_id: 1 },
+    { username: 'ahmed_saber', name: 'أحمد صبر', email: 'ahmed_saber@naturalgrowth.com', role: 'PROD_MANAGER', branch_id: 1 },
+    { username: 'mohammed_a', name: 'محمد الأعوج', email: 'mohammed@naturalgrowth.com', role: 'SALES_OFFICER', branch_id: 1 },
+    { username: 'rayan_m', name: 'ريان موسى', email: 'rayan@naturalgrowth.com', role: 'WAREHOUSE_KEEPER', branch_id: 1 },
+    { username: 'maher_n', name: 'ماهر نضير', email: 'maher@naturalgrowth.com', role: 'ACCOUNTANT', branch_id: 1 },
+    { username: 'supervisor1', name: 'مشرف الإنتاج', email: 'supervisor@naturalgrowth.com', role: 'SUPERVISOR', branch_id: 1 }
   ];
 
   const insertUser = db.prepare(`
@@ -461,12 +527,7 @@ function seedInitialData() {
 
   for (const u of teamUsers) {
     const { hash, salt } = hashPassword('123456');
-    // Primary username
     insertUser.run(u.username, hash, salt, u.name, u.email, '0500123456', u.role, u.branch_id);
-    // Backward-compatible alias username for instant testing
-    if (u.alias && u.alias !== u.username) {
-      insertUser.run(u.alias, hash, salt, u.name, u.email, '0500123456', u.role, u.branch_id);
-    }
   }
 
   // 4. Supervisors table entry
@@ -505,18 +566,18 @@ function seedInitialData() {
     INSERT INTO PRODUCTS (product_code, product_name, category, unit, unit_price, current_stock, min_stock_alert, description)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  insertProduct.run('PRD-EGGS-B30', 'طبق بيض مائدة بني (30 بيضة)', 'بيض مائدة', 'طبق', 19.50, 850, 100, 'بيض طازج من مزارع الشركة معبأ في أطباق كرتونية معقمة');
-  insertProduct.run('PRD-EGGS-W30', 'طبق بيض مائدة أبيض (30 بيضة)', 'بيض مائدة', 'طبق', 18.00, 620, 100, 'بيض أبيض نخب أول حجم سوبر');
-  insertProduct.run('PRD-CHK-LIVE', 'دجاج لحم حي سوبر (متوسط 2.1 كجم)', 'دجاج حي', 'كجم', 13.50, 4800, 500, 'دجاج تسمين حي عالي الجودة تغذية نباتية 100%');
-  insertProduct.run('PRD-CHK-CHILL', 'دجاج مبرد طازج (أكياس مفرغة)', 'دجاج مبرد', 'كجم', 17.00, 1200, 200, 'دجاج مجزر آلياً ومبرد وفق أعلى معايير السلامة');
-  insertProduct.run('PRD-CHICKS-DOC', 'كتاكيت أمهات عمر يوم (روس 308)', 'كتاكيت عمر يوم', 'طائر', 4.50, 15000, 2000, 'كتاكيت خالية من المايكوبلازما والسالمونيلا مع التحصين');
+  insertProduct.run('PRD-EGGS-B30', 'طبق بيض مائدة بني (30 بيضة)', 'بيض مائدة', 'طبق', 4500.00, 850, 100, 'بيض طازج من مزارع الشركة معبأ في أطباق كرتونية معقمة');
+  insertProduct.run('PRD-EGGS-W30', 'طبق بيض مائدة أبيض (30 بيضة)', 'بيض مائدة', 'طبق', 4200.00, 620, 100, 'بيض أبيض نخب أول حجم سوبر');
+  insertProduct.run('PRD-CHK-LIVE', 'دجاج لحم حي سوبر (متوسط 2.1 كجم)', 'دجاج حي', 'كجم', 3200.00, 4800, 500, 'دجاج تسمين حي عالي الجودة تغذية نباتية 100%');
+  insertProduct.run('PRD-CHK-CHILL', 'دجاج مبرد طازج (أكياس مفرغة)', 'دجاج مبرد', 'كجم', 3800.00, 1200, 200, 'دجاج مجزر آلياً ومبرد وفق أعلى معايير السلامة');
+  insertProduct.run('PRD-CHICKS-DOC', 'كتاكيت أمهات عمر يوم (روس 308)', 'كتاكيت عمر يوم', 'طائر', 950.00, 15000, 2000, 'كتاكيت خالية من المايكوبلازما والسالمونيلا مع التحصين');
 
   // 9. Feed Items
   const insertFeed = db.prepare('INSERT INTO FEED_ITEMS (item_code, item_name, feed_type, protein_percentage, unit, unit_cost) VALUES (?, ?, ?, ?, ?, ?)');
-  insertFeed.run('FEED-01', 'علف بادي دواجن سوبر 23%', 'بادي', 23.0, 'كجم', 2.80);
-  insertFeed.run('FEED-02', 'علف نامي دواجن متكامل 21%', 'نامي', 21.0, 'كجم', 2.65);
-  insertFeed.run('FEED-03', 'علف ناهي دواجن تسمين 19%', 'ناهي', 19.0, 'كجم', 2.50);
-  insertFeed.run('FEED-04', 'علف بياض إنتاجي محبب 17.5%', 'بياض', 17.5, 'كجم', 2.40);
+  insertFeed.run('FEED-01', 'علف بادي دواجن سوبر 23%', 'بادي', 23.0, 'كجم', 650.00);
+  insertFeed.run('FEED-02', 'علف نامي دواجن متكامل 21%', 'نامي', 21.0, 'كجم', 620.00);
+  insertFeed.run('FEED-03', 'علف ناهي دواجن تسمين 19%', 'ناهي', 19.0, 'كجم', 590.00);
+  insertFeed.run('FEED-04', 'علف بياض إنتاجي محبب 17.5%', 'بياض', 17.5, 'كجم', 560.00);
 
   // 10. Treatment Items
   const insertTreatment = db.prepare('INSERT INTO TREATMENT_ITEMS (item_code, item_name, active_ingredient, dosage_form, unit, instructions) VALUES (?, ?, ?, ?, ?, ?)');
@@ -542,9 +603,9 @@ function seedInitialData() {
     INSERT INTO CUSTOMERS (customer_code, customer_name, phone, address, commercial_reg, tax_number, customer_type, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  insertCustomer.run('CUST-101', 'شركة الدواجن المتحدة للتوزيع', '0551122334', 'سوق الجملة المركزي - مستودع 12', '1010293847', '300129384700003', 'WHOLESALE', 'عميل استراتيجي - سداد فوري ونصف شهري');
-  insertCustomer.run('CUST-102', 'سلسلة أسواق الخير الغذائية', '0552233445', 'شارع الملك فهد - الإدارة العامة', '1010984736', '300984736100003', 'WHOLESALE', 'توريد أسبوعي لبيض المائدة والدجاج المبرد');
-  insertCustomer.run('CUST-103', 'مطاعم مذاق الريف الحديث', '0553344556', 'حي النخيل - مجمع المطاعم', '1010876543', '300876543200003', 'RETAIL', 'توريد يومي دجاج لحم مبرد طازج');
+  insertCustomer.run('CUST-101', 'شركة الدواجن المتحدة للتوزيع', '0551122334', 'سوق الجملة المركزي - مستودع 12 - صنعاء', '1010293847', '300129384700003', 'WHOLESALE', 'عميل استراتيجي - سداد فوري ونصف شهري');
+  insertCustomer.run('CUST-102', 'سلسلة أسواق الخير الغذائية', '0552233445', 'شارع الستين - الإدارة العامة - صنعاء', '1010984736', '300984736100003', 'WHOLESALE', 'توريد أسبوعي لبيض المائدة والدجاج المبرد');
+  insertCustomer.run('CUST-103', 'مطاعم مذاق الريف الحديث', '0553344556', 'شارع حدة - مجمع المطاعم - صنعاء', '1010876543', '300876543200003', 'RETAIL', 'توريد يومي دجاج لحم مبرد طازج');
 
   // 14. Seed initial Daily Production records
   const insertProd = db.prepare(`
@@ -595,8 +656,8 @@ function seedInitialData() {
     VALUES (?, ?, ?, ?, ?)
   `);
 
-  const resInv = insertInv.run('INV-20260914-001', 1, 3, '2026-09-14', 5850.0, 0, 0, 5850.0, 'PAID', 'فاتورة توريد بيض مائدة نخب أول مسددة نقداً');
-  insertLine.run(Number(resInv.lastInsertRowid), 1, 300, 19.50, 5850.0);
+  const resInv = insertInv.run('INV-20260914-001', 1, 3, '2026-09-14', 1350000.0, 0, 0, 1350000.0, 'PAID', 'فاتورة توريد بيض مائدة نخب أول مسددة نقداً');
+  insertLine.run(Number(resInv.lastInsertRowid), 1, 300, 4500.00, 1350000.0);
 
   // 17. Seed baseline Warehouse Receipt
   const insertReceipt = db.prepare(`

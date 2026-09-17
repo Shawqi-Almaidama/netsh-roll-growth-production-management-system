@@ -344,7 +344,7 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
         id="modal-add-house"
         isOpen={isHouseModalOpen}
         onClose={() => setIsHouseModalOpen(false)}
-        title="إضافة هنجر جديد للنظام (FR-01)"
+        title="إضافة هنجر جديد للنظام"
         subtitle="توثيق بيانات الهنجر وسعته التشغيلية وربطه بالمزرعة"
         maxWidth="lg"
       >
@@ -470,7 +470,7 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
         id="modal-add-flock"
         isOpen={isFlockModalOpen}
         onClose={() => setIsFlockModalOpen(false)}
-        title="تسكين قطيع جديد (FR-01)"
+        title="تسكين قطيع جديد"
         subtitle="تسجيل دفعة كتاكيت جديدة وربطها بهنجر غير مشغول"
         maxWidth="lg"
       >

@@ -160,7 +160,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
       if (res.success) {
         setCreateFeedback({
           type: 'success',
-          message: `${res.message}. تم إرسال إشعار فوري لمدير الإنتاج للمراجعة (BR-06).`
+          message: `${res.message}. تم إرسال إشعار فوري لمدير الإنتاج للمراجعة والاعتماد.`
         });
         await loadData();
         setActiveTab('list');
@@ -451,15 +451,16 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                 تقديم طلب احتياج تشغيلي جديد
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                تحديد نوع الطلب، الموقع المستهدف، وقائمة البنود والكميات المطلوبة (BR-02)
+                تحديد نوع الطلب، الموقع المستهدف، وقائمة البنود والكميات المطلوبة
               </p>
             </div>
             <button
               type="button"
               onClick={() => setActiveTab('list')}
-              className="text-xs text-slate-500 hover:text-slate-800 underline"
+              className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 px-3 py-1.5 rounded-lg"
             >
-              الرجوع لقائمة الطلبات
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>الرجوع لقائمة الطلبات</span>
             </button>
           </div>
 
@@ -555,15 +556,15 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
               </div>
             </div>
 
-            {/* Step 3: Multi-line Items Builder (Header -> Items BR-02) */}
+            {/* Step 3: Multi-line Items Builder */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <label className="font-bold text-slate-900 text-xs">
-                    بنود الطلب والكميات (REQUISITION_ITEMS) *
+                    بنود الطلب والكميات المطلوبة *
                   </label>
                   <p className="text-[11px] text-slate-400">
-                    يجب إضافة بند واحد على الأقل مع تحديد الكمية والمواصفات الفنية (قاعدة BR-02)
+                    يجب إضافة بند واحد على الأقل مع تحديد الكمية والمواصفات الفنية
                   </p>
                 </div>
                 <button

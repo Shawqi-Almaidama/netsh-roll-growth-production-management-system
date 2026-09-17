@@ -70,7 +70,7 @@ export const LoginView: React.FC = () => {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="block w-full pr-10 pl-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono"
-                  placeholder="اسم المستخدم (مثل shawqi أو ahmed_saber)"
+                  placeholder="اسم المستخدم (مثل admin أو ahmed_saber)"
                 />
               </div>
             </div>

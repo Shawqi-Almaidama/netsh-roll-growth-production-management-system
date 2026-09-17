@@ -20,6 +20,7 @@ import { useAuth } from '../context/AuthContext.js';
 import { SalesInvoice, Product, Customer, SalesInvoiceItem } from '../types.js';
 import { Modal } from '../components/ui/Modal.js';
 import { Badge } from '../components/ui/Badge.js';
+import { formatCurrency } from '../utils/currency.js';
 
 export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const { hasRole } = useAuth();
@@ -41,7 +42,7 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
   const [customerId, setCustomerId] = useState<string>('');
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CREDIT' | 'TRANSFER'>('CASH');
-  const [taxRate, setTaxRate] = useState<number>(0.15); // 15% VAT BR-05
+  const [taxRate, setTaxRate] = useState<number>(0); // Optional tax rate (default 0%)
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [notes, setNotes] = useState<string>('');
 
@@ -142,8 +143,9 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
 
   // Calculations
   const subtotal = items.reduce((sum, itm) => sum + (itm.lineTotal || 0), 0);
-  const taxAmount = (subtotal - discountAmount) * taxRate;
-  const grandTotal = Math.max(0, subtotal - discountAmount + taxAmount);
+  const taxable = Math.max(0, subtotal - discountAmount);
+  const taxAmount = Number(((taxable * (Number(taxRate) || 0)) / 100).toFixed(2));
+  const grandTotal = Math.max(0, taxable + taxAmount);
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,7 +160,7 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
       for (const itm of items) {
         const p = products.find(prod => prod.id === itm.productId);
         if (p && itm.quantity > p.current_stock) {
-          throw new Error(`الكمية المطلوبة من الصنف "${p.product_name}" (${itm.quantity}) تتجاوز الرصيد المتاح في المستودع (${p.current_stock}) - قاعدة BR-03`);
+          throw new Error(`الكمية المطلوبة من الصنف "${p.product_name}" (${itm.quantity}) تتجاوز الرصيد المتاح في المستودع (${p.current_stock})`);
         }
       }
 
@@ -229,7 +231,7 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            إصدار فواتير المبيعات الضريبية، الخصم المباشر من المستودع، واحتساب ضريبة القيمة المضافة 15%
+            إصدار فواتير المبيعات، الخصم المباشر من المستودع، وحساب إجماليات البيع بالريال اليمني
           </p>
         </div>
 
@@ -290,7 +292,7 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
                 <th className="py-3 px-4 font-bold">التاريخ</th>
                 <th className="py-3 px-4 font-bold">طريقة الدفع</th>
                 <th className="py-3 px-4 font-bold">المجموع قبل الضريبة</th>
-                <th className="py-3 px-4 font-bold">الضريبة 15%</th>
+                <th className="py-3 px-4 font-bold">الضريبة</th>
                 <th className="py-3 px-4 font-bold">الإجمالي النهائي</th>
                 <th className="py-3 px-4 font-bold">مسؤول البيع</th>
                 <th className="py-3 px-4 font-bold">الحالة</th>
@@ -308,10 +310,10 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
                       {inv.payment_method === 'CASH' ? 'نقدي' : inv.payment_method === 'CREDIT' ? 'آجل' : 'تحويل بنكي'}
                     </span>
                   </td>
-                  <td className="py-3 px-4 font-mono">{inv.subtotal?.toFixed(2)} ر.س</td>
-                  <td className="py-3 px-4 font-mono text-slate-500">{inv.tax_amount?.toFixed(2)} ر.س</td>
+                  <td className="py-3 px-4 font-mono font-medium">{formatCurrency(inv.subtotal)}</td>
+                  <td className="py-3 px-4 font-mono text-slate-500">{formatCurrency(inv.tax_amount)}</td>
                   <td className="py-3 px-4 font-mono font-black text-emerald-800 text-sm">
-                    {inv.total_amount?.toFixed(2)} ر.س
+                    {formatCurrency(inv.total_amount)}
                   </td>
                   <td className="py-3 px-4 text-slate-600">{inv.created_by_name}</td>
                   <td className="py-3 px-4">
@@ -342,7 +344,7 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         title="إصدار فاتورة بيع جديدة"
-        subtitle="التحقق المباشر من توفر المخزون واحتساب ضريبة القيمة المضافة 15%"
+        subtitle="التحقق المباشر من توفر المخزون وحساب إجماليات البيع بالريال اليمني"
         maxWidth="2xl"
       >
         {createError && (
@@ -450,20 +452,20 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-[10px] text-slate-500 mb-0.5">سعر الوحدة (ر.س)</label>
+                      <label className="block text-[10px] text-slate-500 mb-0.5">سعر الوحدة (ر.ي)</label>
                       <input
                         type="number"
                         step="0.01"
                         value={itm.unitPrice}
                         onChange={(e) => handlePriceChange(idx, Number(e.target.value))}
-                        className="w-full p-2 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+                        className="w-full p-2 border border-slate-300 rounded-lg bg-slate-50 font-mono font-medium"
                       />
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-[10px] text-slate-500 mb-0.5">الإجمالي (ر.س)</label>
-                      <div className="p-2 font-mono font-bold text-slate-800 bg-slate-100 rounded-lg text-left">
-                        {itm.lineTotal.toFixed(2)}
+                      <label className="block text-[10px] text-slate-500 mb-0.5">الإجمالي (ر.ي)</label>
+                      <div className="p-2 font-mono font-bold text-slate-800 bg-slate-100 rounded-lg text-left text-xs">
+                        {formatCurrency(itm.lineTotal)}
                       </div>
                     </div>
 
@@ -482,7 +484,7 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
                     {isOverStock && (
                       <div className="sm:col-span-12 text-[11px] text-rose-700 font-bold flex items-center gap-1">
                         <AlertTriangle className="w-3.5 h-3.5" />
-                        <span>تحذير BR-03: الرصيد المتوفر في المستودع هو {selProd.current_stock} فقط! لن تتم المعاملة.</span>
+                        <span>تنبيه المخزون: الرصيد المتوفر في المستودع هو {selProd.current_stock} {selProd.unit} فقط! لا يمكن طلب كمية أكبر من الرصيد الفعلي.</span>
                       </div>
                     )}
                   </div>
@@ -491,11 +493,11 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
             </div>
           </div>
 
-          {/* Financial Totals Summary Box (BR-05) */}
+          {/* Financial Totals Summary Box */}
           <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
             <div>
               <span className="text-slate-500 block text-[11px]">المجموع الفرعي:</span>
-              <span className="font-mono font-bold text-slate-900 text-sm">{subtotal.toFixed(2)} ر.س</span>
+              <span className="font-mono font-bold text-slate-900 text-sm">{formatCurrency(subtotal)}</span>
             </div>
 
             <div>
@@ -510,13 +512,24 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
             </div>
 
             <div>
-              <span className="text-slate-500 block text-[11px]">ضريبة القيمة المضافة (15%):</span>
-              <span className="font-mono font-bold text-slate-800 text-sm">{taxAmount.toFixed(2)} ر.س</span>
+              <span className="text-slate-500 block text-[11px]">الضريبة (نسبة % اختيارية):</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={taxRate}
+                  onChange={(e) => setTaxRate(Number(e.target.value))}
+                  className="w-16 p-1 border border-slate-300 rounded bg-white font-mono text-xs"
+                  placeholder="0"
+                />
+                <span className="font-mono font-bold text-slate-800 text-xs truncate">{formatCurrency(taxAmount)}</span>
+              </div>
             </div>
 
             <div className="p-2 bg-emerald-700 text-white rounded-lg text-center">
               <span className="text-[10px] block opacity-80">الصافي النهائي المستحق:</span>
-              <span className="font-mono font-black text-base">{grandTotal.toFixed(2)} ر.س</span>
+              <span className="font-mono font-black text-sm text-white">{formatCurrency(grandTotal)}</span>
             </div>
           </div>
 
@@ -599,8 +612,8 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
                       <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
                       <td className="p-2.5 font-bold text-slate-900">{it.product_name}</td>
                       <td className="p-2.5 font-mono font-bold text-emerald-800">{it.quantity} {it.unit}</td>
-                      <td className="p-2.5 font-mono">{it.unit_price?.toFixed(2)} ر.س</td>
-                      <td className="p-2.5 font-mono font-bold text-slate-900 text-left">{it.line_total?.toFixed(2)} ر.س</td>
+                      <td className="p-2.5 font-mono">{formatCurrency(it.unit_price)}</td>
+                      <td className="p-2.5 font-mono font-bold text-slate-900 text-left">{formatCurrency(it.line_total)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -609,16 +622,16 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
 
             <div className="bg-slate-50 p-4 rounded-xl space-y-1.5 text-xs">
               <div className="flex justify-between text-slate-600">
-                <span>المجموع قبل الضريبة:</span>
-                <span className="font-mono">{selectedInvoice.subtotal?.toFixed(2)} ر.س</span>
+                <span>المجموع الفرعي:</span>
+                <span className="font-mono font-medium">{formatCurrency(selectedInvoice.subtotal)}</span>
               </div>
               <div className="flex justify-between text-slate-600">
-                <span>ضريبة القيمة المضافة (15%):</span>
-                <span className="font-mono">{selectedInvoice.tax_amount?.toFixed(2)} ر.س</span>
+                <span>الضريبة:</span>
+                <span className="font-mono">{formatCurrency(selectedInvoice.tax_amount)}</span>
               </div>
               <div className="flex justify-between font-bold text-sm text-emerald-900 pt-2 border-t border-slate-200">
-                <span>الإجمالي النهائي المسدد:</span>
-                <span className="font-mono font-black">{selectedInvoice.total_amount?.toFixed(2)} ر.س</span>
+                <span>الإجمالي النهائي المستحق:</span>
+                <span className="font-mono font-black">{formatCurrency(selectedInvoice.total_amount)}</span>
               </div>
             </div>
           </div>

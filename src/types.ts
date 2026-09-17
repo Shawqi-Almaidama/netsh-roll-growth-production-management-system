@@ -1,6 +1,7 @@
 export type RoleCode =
   | 'SUPERVISOR'
   | 'PROD_MGR'
+  | 'PROD_MANAGER'
   | 'SALES_OFFICER'
   | 'WAREHOUSE_KEEPER'
   | 'ACCOUNTANT'

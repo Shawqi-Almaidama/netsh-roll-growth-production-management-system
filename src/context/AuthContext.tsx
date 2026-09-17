@@ -12,8 +12,8 @@ interface DemoAccount {
 }
 
 export const DEMO_ACCOUNTS: DemoAccount[] = [
-  { username: 'shawqi', roleCode: 'ADMIN', roleNameAr: 'مدير النظام', fullName: 'شوقي الميدمة', avatarText: 'شم', color: 'rose' },
-  { username: 'ahmed_saber', roleCode: 'PROD_MGR', roleNameAr: 'مدير قسم الإنتاج', fullName: 'أحمد صبر', avatarText: 'أص', color: 'blue' },
+  { username: 'admin', roleCode: 'ADMIN', roleNameAr: 'مدير النظام', fullName: 'شوقي الميدمة', avatarText: 'شم', color: 'rose' },
+  { username: 'ahmed_saber', roleCode: 'PROD_MANAGER', roleNameAr: 'مدير قسم الإنتاج', fullName: 'أحمد صبر', avatarText: 'أص', color: 'blue' },
   { username: 'mohammed_a', roleCode: 'SALES_OFFICER', roleNameAr: 'مسؤول المبيعات والفواتير', fullName: 'محمد الأعوج', avatarText: 'مع', color: 'amber' },
   { username: 'rayan_m', roleCode: 'WAREHOUSE_KEEPER', roleNameAr: 'أمين المخازن', fullName: 'ريان موسى', avatarText: 'رم', color: 'purple' },
   { username: 'maher_n', roleCode: 'ACCOUNTANT', roleNameAr: 'المحاسب المالي', fullName: 'ماهر نضير', avatarText: 'من', color: 'indigo' },
@@ -27,7 +27,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>;
   quickSwitchUser: (username: string) => Promise<void>;
   logout: () => void;
-  hasRole: (...roles: RoleCode[]) => boolean;
+  hasRole: (...roles: (RoleCode | string)[]) => boolean;
   hasPermission: (perm: string) => boolean;
   refreshUser: () => Promise<void>;
 }
@@ -87,10 +87,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const hasRole = (...roles: RoleCode[]): boolean => {
+  const hasRole = (...roles: (RoleCode | string)[]): boolean => {
     if (!user) return false;
     if (user.roleCode === 'ADMIN') return true; // ADMIN inherits all privileges
-    return roles.includes(user.roleCode);
+    if (roles.includes(user.roleCode)) return true;
+    if ((user.roleCode === 'PROD_MANAGER' || user.roleCode === 'PROD_MGR') &&
+        (roles.includes('PROD_MGR') || roles.includes('PROD_MANAGER'))) {
+      return true;
+    }
+    return false;
   };
 
   const hasPermission = (perm: string): boolean => {

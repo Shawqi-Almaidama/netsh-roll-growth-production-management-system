@@ -4,9 +4,10 @@ import { authenticate, requireRoles, AuthenticatedRequest } from '../auth.js';
 
 const router = Router();
 
-// R-01: تقرير الإنتاج اليومي (Daily Production Report)
-router.get('/daily-production', authenticate, (req, res) => {
+// تقرير الإنتاج اليومي
+router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MGR', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { startDate, endDate, flockId, houseId } = req.query;
+  const user = req.user!;
 
   let query = `
     SELECT dp.id, dp.record_date, dp.production_quantity, dp.unit,
@@ -23,6 +24,12 @@ router.get('/daily-production', authenticate, (req, res) => {
     WHERE 1=1
   `;
   const params: any[] = [];
+
+  // Supervisors only see their own operational entries
+  if (user.roleCode === 'SUPERVISOR') {
+    query += ' AND dp.supervisor_id = ?';
+    params.push(user.id);
+  }
 
   if (startDate) {
     query += ' AND dp.record_date >= ?';
@@ -55,12 +62,13 @@ router.get('/daily-production', authenticate, (req, res) => {
     avgWeightG: rows.length > 0 ? Math.round(rows.reduce((acc, r) => acc + (r.avg_weight_g || 0), 0) / rows.length) : 0
   };
 
-  res.json({ success: true, reportCode: 'R-01', reportName: 'تقرير الإنتاج اليومي', summary, records: rows });
+  res.json({ success: true, reportCode: 'R-01', reportName: 'تقرير الإنتاج والتشغيل اليومي', summary, records: rows });
 });
 
-// R-02: تقرير الطلبات (Requisitions Report)
-router.get('/requisitions', authenticate, (req, res) => {
+// تقرير طلبات الاحتياج
+router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MGR', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { type, status, startDate, endDate } = req.query;
+  const user = req.user!;
 
   let query = `
     SELECT r.id, r.request_no, r.req_type, r.request_date, r.status, r.urgency,
@@ -78,6 +86,12 @@ router.get('/requisitions', authenticate, (req, res) => {
     WHERE 1=1
   `;
   const params: any[] = [];
+
+  // Supervisor only sees requisitions submitted by himself
+  if (user.roleCode === 'SUPERVISOR') {
+    query += ' AND r.requester_id = ?';
+    params.push(user.id);
+  }
 
   if (type) {
     query += ' AND r.req_type = ?';
@@ -112,8 +126,8 @@ router.get('/requisitions', authenticate, (req, res) => {
   res.json({ success: true, reportCode: 'R-02', reportName: 'تقرير طلبات الاحتياج التشغيلية', summary, records: rows });
 });
 
-// R-03: تقرير فواتير المبيعات (Sales Invoices Report)
-router.get('/sales', authenticate, (req, res) => {
+// تقرير فواتير المبيعات
+router.get('/sales', authenticate, requireRoles('ADMIN', 'SALES_OFFICER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { customerId, status, startDate, endDate } = req.query;
 
   let query = `
@@ -161,8 +175,8 @@ router.get('/sales', authenticate, (req, res) => {
   res.json({ success: true, reportCode: 'R-03', reportName: 'تقرير فواتير المبيعات والإيرادات', summary, records: rows });
 });
 
-// R-04: تقرير التوريد للمخازن (Warehouse Receipts Report)
-router.get('/warehouse-receipts', authenticate, (req, res) => {
+// تقرير التوريد للمخازن
+router.get('/warehouse-receipts', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MGR'), (req: AuthenticatedRequest, res: Response) => {
   const { warehouseId, productId, startDate, endDate } = req.query;
 
   let query = `
@@ -208,8 +222,8 @@ router.get('/warehouse-receipts', authenticate, (req, res) => {
   res.json({ success: true, reportCode: 'R-04', reportName: 'تقرير حركات التوريد للمستودعات', summary, records: rows });
 });
 
-// R-05: تقرير المنتجات والمخزون (Products & Stock Report)
-router.get('/products-inventory', authenticate, (req, res) => {
+// تقرير المنتجات والمخزون
+router.get('/products-inventory', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'SALES_OFFICER', 'PROD_MGR'), (req: AuthenticatedRequest, res: Response) => {
   const { category, lowStockOnly } = req.query;
 
   let query = `

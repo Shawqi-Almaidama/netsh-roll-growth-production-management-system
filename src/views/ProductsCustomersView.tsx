@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext.js';
 import { Product, Customer } from '../types.js';
 import { Modal } from '../components/ui/Modal.js';
 import { Badge } from '../components/ui/Badge.js';
+import { formatCurrency } from '../utils/currency.js';
 
 export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const { hasRole } = useAuth();
@@ -242,7 +243,7 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
                 className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
               >
                 <Plus className="w-4 h-4" />
-                <span>إضافة منتج جديد (FR-08)</span>
+                <span>إضافة منتج جديد</span>
               </button>
             )}
           </div>
@@ -276,14 +277,14 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
                         <td className="py-3 px-4 text-slate-600">{p.category}</td>
                         <td className="py-3 px-4 text-slate-500">{p.unit}</td>
                         <td className="py-3 px-4 font-mono font-bold text-slate-800">
-                          {p.unit_price.toFixed(2)} ر.س
+                          {formatCurrency(p.unit_price)}
                         </td>
                         <td className="py-3 px-4 font-mono font-black text-slate-900">
                           {p.current_stock}
                         </td>
                         <td className="py-3 px-4 font-mono text-slate-500">{p.min_stock_alert}</td>
                         <td className="py-3 px-4 font-mono font-bold text-emerald-800">
-                          {valuation.toLocaleString('ar-EG', { minimumFractionDigits: 2 })} ر.س
+                          {formatCurrency(valuation)}
                         </td>
                         <td className="py-3 px-4 text-center">
                           {isLow ? (
@@ -327,7 +328,7 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
                 className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
               >
                 <Plus className="w-4 h-4" />
-                <span>تسجيل عميل جديد (FR-09)</span>
+                <span>تسجيل عميل جديد</span>
               </button>
             )}
           </div>
@@ -362,7 +363,7 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
                       <td className="py-3 px-4 font-mono text-slate-500">{c.commercial_reg || '-'}</td>
                       <td className="py-3 px-4 font-mono font-bold text-slate-800">{c.total_invoices || 0}</td>
                       <td className="py-3 px-4 font-mono font-bold text-emerald-800">
-                        {(c.total_sales || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2 })} ر.س
+                        {formatCurrency(c.total_sales || 0)}
                       </td>
                     </tr>
                   ))}
@@ -440,7 +441,7 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">سعر الوحدة (ر.س) *</label>
+              <label className="block font-bold text-slate-700 mb-1">سعر الوحدة (ر.ي) *</label>
               <input
                 type="number"
                 step="0.01"

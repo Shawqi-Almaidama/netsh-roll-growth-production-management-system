@@ -224,7 +224,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
                   </td>
                   <td className="py-3 px-4 text-slate-600">{rec.received_by_name}</td>
                   <td className="py-3 px-4">
-                    <Badge variant="emerald">تم التوريد وزيادة المخزون (BR-04)</Badge>
+                    <Badge variant="emerald">تم التوريد وزيادة المخزون</Badge>
                   </td>
                   <td className="py-3 px-4 text-center">
                     <button
@@ -422,7 +422,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
               disabled={submitting}
               className="px-5 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg font-bold shadow-xs disabled:opacity-50"
             >
-              {submitting ? 'جاري التوريد وزيادة المخزون...' : 'إتمام سند التوريد (BR-04)'}
+              {submitting ? 'جاري التوريد وزيادة المخزون...' : 'إتمام سند التوريد وتحديث الرصيد'}
             </button>
           </div>
         </form>

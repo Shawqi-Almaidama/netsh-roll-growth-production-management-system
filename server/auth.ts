@@ -103,7 +103,16 @@ export function requireRoles(...allowedRoles: string[]) {
     }
 
     // ADMIN always has full access
-    if (req.user.roleCode === 'ADMIN' || allowedRoles.includes(req.user.roleCode)) {
+    if (req.user.roleCode === 'ADMIN') {
+      return next();
+    }
+
+    const userRole = req.user.roleCode;
+    const isAllowed = allowedRoles.includes(userRole) ||
+      ((userRole === 'PROD_MANAGER' || userRole === 'PROD_MGR') &&
+       (allowedRoles.includes('PROD_MGR') || allowedRoles.includes('PROD_MANAGER')));
+
+    if (isAllowed) {
       return next();
     }
 

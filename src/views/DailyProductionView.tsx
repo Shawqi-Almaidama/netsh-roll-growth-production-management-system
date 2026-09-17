@@ -387,19 +387,19 @@ export const DailyProductionView: React.FC<{ onBack?: () => void }> = ({ onBack 
           </div>
 
           <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 mt-4 leading-relaxed">
-            <span className="font-bold block">ملاحظة أمان وتكامل (BR-01, FR-02):</span>
+            <span className="font-bold block">ملاحظة أمان وتكامل:</span>
             تسجيل الوفيات يخصم فورياً من إجمالي الطيور الحية في قاعدة البيانات لحفظ توازن الأصول الحية.
           </div>
         </div>
       </div>
 
-      {/* Historical Records Table (UI-03, FR-16) */}
+      {/* Historical Records Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <History className="w-4 h-4 text-emerald-700" />
             <h2 className="text-sm font-bold text-slate-900">
-              سجل حركات الإنتاج التاريخية (FR-16)
+              سجل حركات الإنتاج التاريخية
             </h2>
             <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">
               {filteredRecords.length} سجل
