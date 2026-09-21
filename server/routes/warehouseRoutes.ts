@@ -39,7 +39,9 @@ router.get('/receipts', authenticate, (req, res) => {
            wr.notes, wr.created_at,
            w.warehouse_name, w.warehouse_code,
            p.product_name, p.product_code, p.unit, p.category,
-           u.full_name as receiver_name
+           u.full_name as receiver_name,
+           u.full_name as received_by_name,
+           wr.receipt_date as supply_date
     FROM WAREHOUSE_RECEIPTS wr
     JOIN WAREHOUSES w ON wr.warehouse_id = w.id
     JOIN PRODUCTS p ON wr.product_id = p.id
@@ -65,9 +67,9 @@ router.get('/receipts', authenticate, (req, res) => {
     params.push(String(endDate));
   }
   if (search) {
-    query += ' AND (wr.receipt_no LIKE ? OR wr.supplier_name LIKE ? OR p.product_name LIKE ?)';
+    query += ' AND (wr.receipt_no LIKE ? OR wr.supplier_name LIKE ? OR p.product_name LIKE ? OR w.warehouse_name LIKE ? OR u.full_name LIKE ?)';
     const s = `%${search}%`;
-    params.push(s, s, s);
+    params.push(s, s, s, s, s);
   }
 
   query += ' ORDER BY wr.id DESC LIMIT 200';
@@ -79,13 +81,14 @@ router.get('/receipts', authenticate, (req, res) => {
 // GET /warehouses/receipts/:id - Get Receipt Details
 router.get('/receipts/:id', authenticate, (req: AuthenticatedRequest, res: Response) => {
   const receipt = db.prepare(`
-    SELECT wr.*, w.warehouse_name, p.product_name, p.unit, p.product_code, u.full_name as received_by_name,
-           r.request_no
+    SELECT wr.*, w.warehouse_name, w.warehouse_code, p.product_name, p.unit, p.product_code,
+           u.full_name as receiver_name,
+           u.full_name as received_by_name,
+           wr.receipt_date as supply_date
     FROM WAREHOUSE_RECEIPTS wr
     JOIN WAREHOUSES w ON wr.warehouse_id = w.id
     JOIN PRODUCTS p ON wr.product_id = p.id
     JOIN USERS u ON wr.received_by = u.id
-    LEFT JOIN REQUISITIONS r ON wr.requisition_id = r.id
     WHERE wr.id = ?
   `).get(req.params.id) as any;
 
@@ -111,30 +114,63 @@ router.get('/receipts/:id', authenticate, (req: AuthenticatedRequest, res: Respo
 // POST /warehouses/receipts - Create Warehouse Receipt (FR-11, UC-11)
 // Enforces BR-04: Supply records warehouse receipt and increments stock atomically
 // -------------------------------------------------------------
-router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MGR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-  const { warehouseId, productId, quantity, supplierName, receiptDate, batchNumber, notes } = req.body;
+router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  const { warehouseId, productId, quantity, supplierName, receiptDate, supplyDate, batchNumber, notes, items } = req.body;
 
-  if (!warehouseId || !productId || !quantity || !supplierName) {
-    return res.status(400).json({ success: false, message: 'المستودع، المنتج، الكمية، واسم المورد/المصدر حقول إلزامية' });
+  const finalSupplier = (supplierName || '').trim();
+  if (!finalSupplier) {
+    return res.status(400).json({ success: false, message: 'اسم المورد أو جهة التوريد حقل إلزامي' });
   }
 
-  const qty = Number(quantity);
-  if (isNaN(qty) || qty <= 0) {
-    return res.status(400).json({ success: false, message: 'يجب أن تكون كمية التوريد رقماً موجباً أكبر من صفر' });
+  // Resolve target warehouse
+  let targetWarehouseId = Number(warehouseId);
+  if (!targetWarehouseId || isNaN(targetWarehouseId)) {
+    const defaultWh = db.prepare('SELECT id, warehouse_name FROM WAREHOUSES ORDER BY id ASC LIMIT 1').get() as any;
+    if (!defaultWh) {
+      return res.status(400).json({ success: false, message: 'لا يوجد أي مستودع مسجل في النظام' });
+    }
+    targetWarehouseId = defaultWh.id;
   }
 
-  const warehouse = db.prepare('SELECT id, warehouse_name FROM WAREHOUSES WHERE id = ?').get(warehouseId);
+  const warehouse = db.prepare('SELECT id, warehouse_name FROM WAREHOUSES WHERE id = ?').get(targetWarehouseId) as any;
   if (!warehouse) {
-    return res.status(404).json({ success: false, message: 'المستودع غير موجود' });
+    return res.status(404).json({ success: false, message: 'المستودع المحدد غير موجود' });
   }
 
-  const product = db.prepare('SELECT id, product_name, current_stock FROM PRODUCTS WHERE id = ?').get(productId) as any;
-  if (!product) {
-    return res.status(404).json({ success: false, message: 'المنتج غير موجود' });
+  // Normalize items list (supports both multi-item and single-item requests)
+  const itemsToProcess: Array<{ productId: number; quantity: number; batchNumber?: string }> = [];
+
+  if (Array.isArray(items) && items.length > 0) {
+    for (const it of items) {
+      const pid = Number(it.productId || it.product_id);
+      const qty = Number(it.quantityReceived || it.quantity);
+      if (!pid || isNaN(qty) || qty <= 0) {
+        return res.status(400).json({ success: false, message: 'يجب تحديد الصنف وكمية استلام موجبة أكبر من صفر لجميع البنود' });
+      }
+      itemsToProcess.push({
+        productId: pid,
+        quantity: qty,
+        batchNumber: (it.batchNumber || it.batch_number || '').trim() || undefined
+      });
+    }
+  } else if (productId && quantity) {
+    const qty = Number(quantity);
+    if (isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ success: false, message: 'يجب أن تكون كمية التوريد رقماً موجباً أكبر من صفر' });
+    }
+    itemsToProcess.push({
+      productId: Number(productId),
+      quantity: qty,
+      batchNumber: (batchNumber || '').trim() || undefined
+    });
+  } else {
+    return res.status(400).json({ success: false, message: 'يرجى تحديد الأصناف والكميات المطلوب توريدها للمستودع' });
   }
 
-  const receiptNo = generateReceiptNo();
-  const recDate = receiptDate || new Date().toISOString().slice(0, 10);
+  const recDate = receiptDate || supplyDate || new Date().toISOString().slice(0, 10);
+  const baseReceiptNo = generateReceiptNo();
+  let firstReceiptId: number | bigint = 0;
+  let totalQty = 0;
 
   // ATOMIC TRANSACTION (BR-04)
   try {
@@ -147,42 +183,56 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MG
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const result = insertReceipt.run(
-      receiptNo,
-      warehouseId,
-      productId,
-      qty,
-      supplierName.trim(),
-      req.user!.id,
-      recDate,
-      batchNumber ? batchNumber.trim() : null,
-      notes || null
-    );
-
-    // Atomically increment stock
-    db.prepare(`
+    const updateStock = db.prepare(`
       UPDATE PRODUCTS
       SET current_stock = current_stock + ?
       WHERE id = ?
-    `).run(qty, productId);
+    `);
+
+    itemsToProcess.forEach((it, idx) => {
+      const rNo = itemsToProcess.length > 1 ? `${baseReceiptNo}-${idx + 1}` : baseReceiptNo;
+      const product = db.prepare('SELECT id, product_name, current_stock FROM PRODUCTS WHERE id = ?').get(it.productId) as any;
+      if (!product) {
+        throw new Error(`المنتج رقم ${it.productId} غير موجود`);
+      }
+
+      const resInsert = insertReceipt.run(
+        rNo,
+        targetWarehouseId,
+        it.productId,
+        it.quantity,
+        finalSupplier,
+        req.user!.id,
+        recDate,
+        it.batchNumber || null,
+        notes || null
+      );
+
+      if (idx === 0) {
+        firstReceiptId = resInsert.lastInsertRowid;
+      }
+
+      updateStock.run(it.quantity, it.productId);
+      totalQty += it.quantity;
+    });
 
     db.exec('COMMIT;');
 
     // Trigger Notification to Management
     createNotification({
-      roleTarget: 'PROD_MGR',
-      title: `سند توريد مستودعي جديد: ${receiptNo}`,
-      message: `تم توريد ${qty} من ${product.product_name} إلى ${warehouse.warehouse_name} بنجاح`,
+      roleTarget: 'PROD_MANAGER',
+      title: `سند توريد مستودعي جديد: ${baseReceiptNo}`,
+      message: `تم توريد عدد ${itemsToProcess.length} صنف بإجمالي كمية ${totalQty} إلى ${warehouse.warehouse_name} بنجاح`,
       type: 'SUCCESS',
       link: '/warehouse'
     });
 
     res.status(201).json({
       success: true,
-      message: `تم تسجيل سند التوريد رقم ${receiptNo} وإضافة الكمية للمخزون بنجاح (BR-04)`,
-      receiptId: result.lastInsertRowid,
-      receiptNo,
-      newStock: product.current_stock + qty
+      message: `تم تسجيل سند التوريد رقم ${baseReceiptNo} وإضافة الكمية للمخزون بنجاح (BR-04)`,
+      receiptId: firstReceiptId,
+      receiptNo: baseReceiptNo,
+      totalItems: itemsToProcess.length
     });
   } catch (err: any) {
     db.exec('ROLLBACK;');

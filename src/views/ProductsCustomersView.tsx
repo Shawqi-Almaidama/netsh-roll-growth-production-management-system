@@ -233,7 +233,7 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
               </select>
             </div>
 
-            {hasRole('SALES_OFFICER', 'PROD_MGR', 'ADMIN') && (
+            {hasRole('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN') && (
               <button
                 type="button"
                 onClick={() => {

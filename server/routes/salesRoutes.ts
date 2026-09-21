@@ -95,10 +95,10 @@ router.get('/invoices/:id', authenticate, (req, res) => {
 
 // -------------------------------------------------------------
 // POST /sales/invoices - Create Invoice (FR-10, UC-10)
-// Enforces BR-01 (Check Stock), BR-03 (Decrease Stock), BR-05 (Calculations)
+// Enforces BR-01 (Check Stock), BR-03 (Decrease Stock), BR-05 (Customer Link & INVOICE_LINES)
 // Fully Atomic Transaction
 // -------------------------------------------------------------
-router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MGR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const { customerId, invoiceDate, discount, taxRate, paymentStatus, notes, lines } = req.body;
 
   // Basic validation
@@ -230,7 +230,7 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MGR',
     // Create notifications for low stock products
     if (lowStockAlerts.length > 0) {
       createNotification({
-        roleTarget: 'PROD_MGR',
+        roleTarget: 'PROD_MANAGER',
         title: 'تنبيه: انخفاض مخزون بعض المنتجات للحد الأدنى',
         message: `تم إصدار الفاتورة ${invoiceNo} وأصبح مخزون المواد التالية أقل من الحد الحرج: ${lowStockAlerts.join('، ')}`,
         type: 'WARNING',

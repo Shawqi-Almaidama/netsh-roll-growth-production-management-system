@@ -21,7 +21,7 @@ router.get('/farms', authenticate, (req, res) => {
   res.json({ success: true, farms });
 });
 
-router.post('/farms', authenticate, requireRoles('PROD_MGR', 'ADMIN'), (req, res) => {
+router.post('/farms', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { farmCode, farmName, location, capacity, branchId, supervisorId } = req.body;
 
   if (!farmCode || !farmName || !location || !capacity) {
@@ -65,7 +65,7 @@ router.get('/houses', authenticate, (req, res) => {
   res.json({ success: true, houses });
 });
 
-router.post('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADMIN'), (req, res) => {
+router.post('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { farmId, houseCode, houseName, houseType, capacity, supervisorId, notes } = req.body;
 
   if (!farmId || !houseCode || !houseName || !houseType || !capacity) {
@@ -85,7 +85,7 @@ router.post('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADM
   res.status(201).json({ success: true, message: 'تم إضافة الهنجر بنجاح', houseId: result.lastInsertRowid });
 });
 
-router.put('/houses/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADMIN'), (req, res) => {
+router.put('/houses/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const houseId = Number(req.params.id);
   const { houseName, houseType, capacity, currentStatus, supervisorId, notes } = req.body;
 
@@ -125,7 +125,7 @@ router.get('/flocks', authenticate, (req, res) => {
   res.json({ success: true, flocks });
 });
 
-router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADMIN'), (req, res) => {
+router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { houseId, flockCode, breed, initialCount, entryDate, targetWeightG, notes } = req.body;
 
   if (!houseId || !flockCode || !breed || !initialCount || !entryDate) {
@@ -158,7 +158,7 @@ router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADM
   res.status(201).json({ success: true, message: 'تم تسكين القطيع الجديد بنجاح', flockId: result.lastInsertRowid });
 });
 
-router.put('/flocks/:id/status', authenticate, requireRoles('PROD_MGR', 'ADMIN'), (req, res) => {
+router.put('/flocks/:id/status', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req, res) => {
   const flockId = Number(req.params.id);
   const { status, notes } = req.body;
 
@@ -313,7 +313,7 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
     // Trigger Notification if high mortality (> 15)
     if (mortCount >= 15) {
       createNotification({
-        roleTarget: 'PROD_MGR',
+        roleTarget: 'PROD_MANAGER',
         title: 'تنبيه: ارتفاع معدل الوفيات في القطيع',
         message: `تم تسجيل ${mortCount} حالة وفاة في القطيع ${flock.flock_code} بتاريخ ${recordDate}. يرجى الفحص والمتابعة`,
         type: 'ALERT',

@@ -48,7 +48,7 @@ export const AuditComplianceView: React.FC = () => {
     { name: 'محمد الأعوج', role: 'مسؤول المبيعات والفواتير', roleCode: 'SALES_OFFICER', username: 'mohammed_a', desc: 'إصدار فواتير المبيعات، إدارة العملاء، تسعير المنتجات' },
     { name: 'ريان موسى', role: 'أمين المخزن', roleCode: 'WAREHOUSE_KEEPER', username: 'rayan_m', desc: 'استلام التوريدات، مراقبة المخزون الفعلي، سندات الاستلام' },
     { name: 'ماهر نضير', role: 'المحاسب المالي', roleCode: 'ACCOUNTANT', username: 'maher_n', desc: 'استخراج ومراجعة التقارير المالية والتشغيلية R-01..R-05' },
-    { name: 'مشرف الإنتاج', role: 'مشرف الهنجر / الإنتاج', roleCode: 'SUPERVISOR', username: 'supervisor1', desc: 'تسجيل الإنتاج اليومي، الوفيات، تقديم طلبات الاحتياج' }
+    { name: 'مشرف الإنتاج', role: 'مشرف الإنتاج', roleCode: 'SUPERVISOR', username: 'supervisor1', desc: 'تسجيل الإنتاج اليومي، الوفيات، تقديم طلبات الاحتياج' }
   ];
 
   // Correct Traceability Matrix (FR-01 to FR-16, UC-01 to UC-13, BR-01 to BR-06, UI-01 to UI-14)
@@ -625,38 +625,58 @@ export const AuditComplianceView: React.FC = () => {
             </div>
           </div>
 
-          {/* Database Tables Summary */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-            <h4 className="font-bold text-sm text-slate-900 mb-3 flex items-center gap-2">
-              <Database className="w-4 h-4 text-emerald-700" />
-              <span>جداول قاعدة البيانات المعتمدة في النظام (Schema Tables):</span>
-            </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          {/* Database Tables & Records Count Summary */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <Database className="w-4 h-4 text-emerald-700" />
+                <span>جداول قاعدة البيانات الـ 21 المعتمدة وإحصاء السجلات الدقيق:</span>
+              </h4>
+              <div className="text-xs font-medium text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                إجمالي سجلات جميع الجداول: 65 سجلًا منها 6 سجلات للأدوار، و59 سجلًا تشغيليًا بعد استبعاد جدول ROLES.
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 text-xs">
               {[
-                { name: 'USERS', desc: 'المستخدمون والحسابات وتشفير PBKDF2' },
-                { name: 'ROLES', desc: 'الأدوار وصلاحيات RBAC المفصلة' },
-                { name: 'FARMS', desc: 'المزارع الجغرافية وبيانات الترخيص' },
-                { name: 'HOUSES', desc: 'الهناجر والعنابر والسعات التشغيلية' },
-                { name: 'FLOCKS', desc: 'القطعان الحية، السلالة والعدد' },
-                { name: 'DAILY_PRODUCTION', desc: 'الإنتاج، الوفيات، الأعلاف والمياه' },
-                { name: 'REQUISITIONS', desc: 'رؤوس طلبات الاحتياج والاعتماد' },
-                { name: 'REQUISITION_ITEMS', desc: 'بنود طلبات الاحتياج التفصيلية' },
-                { name: 'FEED_CATALOG', desc: 'دليل أصناف الأعلاف المعتمدة' },
-                { name: 'TREATMENT_CATALOG', desc: 'دليل التحصينات والأدوية البيطرية' },
-                { name: 'SUPPLY_CATALOG', desc: 'دليل مستلزمات التشغيل والمطهرات' },
-                { name: 'PRODUCTS', desc: 'أصناف المنتجات التجارية والمخزون' },
-                { name: 'CUSTOMERS', desc: 'العملاء وبيانات الاتصال والنوع' },
-                { name: 'SALES_INVOICES', desc: 'فواتير المبيعات والتوزيع' },
-                { name: 'INVOICE_LINES', desc: 'بنود فواتير المبيعات وأسعارها' },
-                { name: 'WAREHOUSE_RECEIPTS', desc: 'سندات استلام وتوريد البضائع' },
-                { name: 'NOTIFICATIONS', desc: 'الإشعارات والتنبيهات المباشرة' },
-                { name: 'AUDIT_LOGS', desc: 'سجل التدقيق التاريخي للعمليات' }
+                { name: 'ROLES', count: 6, desc: 'الأدوار وصلاحيات RBAC المعتمدة (جدول نظام)' },
+                { name: 'BRANCHES', count: 2, desc: 'الفروع والمواقع الجغرافية المعتمدة' },
+                { name: 'USERS', count: 6, desc: 'حسابات المستخدمين الستة المعتمدين' },
+                { name: 'SUPERVISORS', count: 1, desc: 'سجل مشرف الإنتاج الميداني' },
+                { name: 'FARMS', count: 2, desc: 'المزارع الجغرافية وبيانات السعة' },
+                { name: 'HOUSES', count: 4, desc: 'العنابر والهناجر المعتمدة' },
+                { name: 'FLOCKS', count: 3, desc: 'القطعان النشطة وتعداد الطيور (67,540 طائر)' },
+                { name: 'PRODUCTS', count: 5, desc: 'الأصناف التجارية للمنتجات والمخزون' },
+                { name: 'FARM_PRODUCTS', count: 0, desc: 'ربط المزارع بالمنتجات (مهيأ)' },
+                { name: 'FEED_ITEMS', count: 4, desc: 'دليل أصناف الأعلاف المعتمدة' },
+                { name: 'TREATMENT_ITEMS', count: 4, desc: 'دليل التحصينات والعلاجات البيطرية' },
+                { name: 'SUPPLY_ITEMS', count: 4, desc: 'دليل مستلزمات التشغيل والمطهرات' },
+                { name: 'REQUISITIONS', count: 4, desc: 'طلبات الاحتياج التشغيلية المعتمدة' },
+                { name: 'REQUISITION_ITEMS', count: 5, desc: 'بنود وتفاصيل طلبات الاحتياج' },
+                { name: 'CUSTOMERS', count: 3, desc: 'العملاء وبيانات الاتصال والتعاقد' },
+                { name: 'SALES_INVOICES', count: 1, desc: 'فواتير المبيعات الصادرة' },
+                { name: 'INVOICE_LINES', count: 1, desc: 'بنود فواتير المبيعات وأسعارها' },
+                { name: 'WAREHOUSES', count: 2, desc: 'المستودعات والمخازن المعتمدة' },
+                { name: 'WAREHOUSE_RECEIPTS', count: 1, desc: 'سندات استلام وتوريد البضائع' },
+                { name: 'DAILY_PRODUCTION', count: 4, desc: 'سجلات الإنتاج والوفيات اليومية' },
+                { name: 'NOTIFICATIONS', count: 3, desc: 'إشعارات النظام اللحظية المعتمدة' }
               ].map((tbl) => (
                 <div key={tbl.name} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="font-mono font-bold text-slate-900">{tbl.name}</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">{tbl.desc}</div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-slate-900">{tbl.name}</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-sm bg-slate-200 text-slate-700">{tbl.count}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">{tbl.desc}</div>
                 </div>
               ))}
+            </div>
+
+            {/* Performance & NFR Note */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 mt-3 text-xs text-slate-700 space-y-1">
+              <div className="font-bold text-slate-900">ملاحظة معيار الأداء الأكاديمي (NFR-02):</div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                NFR-02 يحدد متطلب الأداء باعتبار 80% هدفًا ومؤشرًا متوقعًا وليس ضمانًا مطلقًا. بينما يُعد معيار الاستجابة لأقل من 50 ميلي ثانية (&lt;50ms) مجرد Benchmark محلي لسرعة المحرك لقراءة البيانات الموضعية أثناء الاختبار فقط، وليس شرطاً تعاقدياً أو متطلباً رسميًا للمشروع.
+              </p>
             </div>
           </div>
         </div>

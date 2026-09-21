@@ -201,7 +201,7 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          {hasRole('SUPERVISOR', 'PROD_MGR', 'ADMIN') && (
+          {hasRole('SUPERVISOR', 'PROD_MANAGER', 'ADMIN') && (
             <>
               <button
                 type="button"

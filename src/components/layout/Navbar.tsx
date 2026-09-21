@@ -53,14 +53,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => onNavigate('dashboard')}>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white flex items-center justify-center shadow-xs">
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => onNavigate('dashboard')}>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white flex items-center justify-center shadow-xs shrink-0">
             <Sprout className="w-5 h-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-slate-900 text-sm tracking-tight leading-none">نتش رول جروث</span>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.2 rounded-sm">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-900 text-sm tracking-tight">نتش رول جروث</span>
+              <span className="text-slate-400 font-normal select-none leading-none">—</span>
+              <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/80">
                 نظام الإنتاج
               </span>
             </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Warehouse,
+  Warehouse as WarehouseIcon,
   Plus,
   Search,
   Eye,
@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../context/AuthContext.js';
-import { WarehouseReceipt, Product, Requisition } from '../types.js';
+import { WarehouseReceipt, Product, Requisition, Warehouse } from '../types.js';
 import { Modal } from '../components/ui/Modal.js';
 import { Badge } from '../components/ui/Badge.js';
 
@@ -22,6 +22,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
   const { hasRole, user } = useAuth();
   const [receipts, setReceipts] = useState<WarehouseReceipt[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,6 +35,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
   const [submitting, setSubmitting] = useState(false);
 
   // Form State
+  const [warehouseId, setWarehouseId] = useState<string>('');
   const [requisitionId, setRequisitionId] = useState<string>('');
   const [supplyDate, setSupplyDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplierName, setSupplierName] = useState('مزارع الإنتاج المركزية - قسم التحضين');
@@ -51,10 +53,11 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [recRes, prodRes, reqRes] = await Promise.all([
+      const [recRes, prodRes, reqRes, whRes] = await Promise.all([
         api.getWarehouseReceipts(),
         api.getProducts(),
-        api.getRequisitions()
+        api.getRequisitions(),
+        api.getWarehouses()
       ]);
 
       if (recRes.success) setReceipts(recRes.receipts);
@@ -66,6 +69,10 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
       }
       if (reqRes.success) {
         setRequisitions(reqRes.requisitions.filter((r: Requisition) => r.status === 'APPROVED'));
+      }
+      if (whRes.success && whRes.warehouses?.length > 0) {
+        setWarehouses(whRes.warehouses);
+        setWarehouseId(prev => prev || String(whRes.warehouses[0].id));
       }
     } catch (err) {
       console.error('Failed to load warehouse receipts:', err);
@@ -98,6 +105,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
 
     try {
       const res = await api.createWarehouseReceipt({
+        warehouseId: Number(warehouseId) || (warehouses[0]?.id || 1),
         requisitionId: requisitionId ? Number(requisitionId) : null,
         supplyDate,
         supplierName,
@@ -134,6 +142,9 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
       return (
         r.receipt_no?.toLowerCase().includes(q) ||
         r.supplier_name?.toLowerCase().includes(q) ||
+        r.warehouse_name?.toLowerCase().includes(q) ||
+        r.product_name?.toLowerCase().includes(q) ||
+        r.receiver_name?.toLowerCase().includes(q) ||
         r.received_by_name?.toLowerCase().includes(q)
       );
     }
@@ -165,7 +176,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
           </p>
         </div>
 
-        {hasRole('WAREHOUSE_KEEPER', 'ADMIN') && (
+        {hasRole('WAREHOUSE_KEEPER', 'PROD_MANAGER', 'ADMIN') && (
           <button
             type="button"
             onClick={() => {
@@ -188,7 +199,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
             type="text"
             value={searchKw}
             onChange={(e) => setSearchKw(e.target.value)}
-            placeholder="البحث برقم السند، اسم المورد، أمين المستودع..."
+            placeholder="البحث برقم السند، الصنف، المورد، المستودع..."
             className="w-full text-xs pr-9 pl-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:ring-1 focus:ring-purple-500"
           />
         </div>
@@ -206,38 +217,48 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
               <tr>
                 <th className="py-3 px-4 font-bold">رقم السند</th>
                 <th className="py-3 px-4 font-bold">تاريخ الاستلام</th>
+                <th className="py-3 px-4 font-bold">المستودع</th>
+                <th className="py-3 px-4 font-bold">الصنف المستلم</th>
+                <th className="py-3 px-4 font-bold">الكمية المستلمة</th>
                 <th className="py-3 px-4 font-bold">المورد / المصدر</th>
-                <th className="py-3 px-4 font-bold">رقم طلب الاحتياج المرتبط</th>
                 <th className="py-3 px-4 font-bold">أمين المستودع المستلم</th>
                 <th className="py-3 px-4 font-bold">الحالة</th>
                 <th className="py-3 px-4 font-bold text-center">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredReceipts.map((rec) => (
-                <tr key={`wh-rec-${rec.id}`} className="hover:bg-slate-50/60 transition-colors">
-                  <td className="py-3 px-4 font-mono font-bold text-slate-900">{rec.receipt_no}</td>
-                  <td className="py-3 px-4 font-mono text-slate-600">{rec.supply_date}</td>
-                  <td className="py-3 px-4 font-bold text-slate-900">{rec.supplier_name}</td>
-                  <td className="py-3 px-4 font-mono text-emerald-800 font-semibold">
-                    {rec.request_no || 'توريد إنتاج داخلي'}
-                  </td>
-                  <td className="py-3 px-4 text-slate-600">{rec.received_by_name}</td>
-                  <td className="py-3 px-4">
-                    <Badge variant="emerald">تم التوريد وزيادة المخزون</Badge>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <button
-                      type="button"
-                      onClick={() => handleViewReceipt(rec.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-slate-600" />
-                      <span>تفاصيل السند</span>
-                    </button>
+              {filteredReceipts.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-slate-400">
+                    لا توجد سندات استلام مطابقة
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredReceipts.map((rec) => (
+                  <tr key={`wh-rec-${rec.id}`} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-3 px-4 font-mono font-bold text-slate-900">{rec.receipt_no}</td>
+                    <td className="py-3 px-4 font-mono text-slate-600">{rec.receipt_date || rec.supply_date}</td>
+                    <td className="py-3 px-4 font-bold text-slate-800">{rec.warehouse_name}</td>
+                    <td className="py-3 px-4 font-bold text-purple-900">{rec.product_name}</td>
+                    <td className="py-3 px-4 font-mono font-bold text-emerald-800">{rec.quantity} {rec.unit}</td>
+                    <td className="py-3 px-4 font-medium text-slate-800">{rec.supplier_name}</td>
+                    <td className="py-3 px-4 text-slate-600">{rec.receiver_name || rec.received_by_name}</td>
+                    <td className="py-3 px-4">
+                      <Badge variant="emerald">تم التوريد وزيادة المخزون</Badge>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleViewReceipt(rec.id)}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-slate-600" />
+                        <span>تفاصيل السند</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -260,7 +281,23 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
         )}
 
         <form onSubmit={handleCreateReceipt} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">المستودع المستلم *</label>
+              <select
+                required
+                value={warehouseId}
+                onChange={(e) => setWarehouseId(e.target.value)}
+                className="w-full p-2 border border-slate-300 rounded-lg bg-white font-bold"
+              >
+                {warehouses.map((w) => (
+                  <option key={`wh-opt-${w.id}`} value={w.id}>
+                    {w.warehouse_name} ({w.location})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block font-bold text-slate-700 mb-1">طلب الاحتياج المرتبط (اختياري)</label>
               <select
@@ -434,28 +471,34 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
         isOpen={isViewOpen}
         onClose={() => setIsViewOpen(false)}
         title={`سند استلام وتوريد: ${selectedReceipt?.receipt_no || ''}`}
-        subtitle="توثيق حركة الإضافة المخزنية"
+        subtitle="توثيق حركة الإضافة المخزنية وتحديث رصيد المستودع"
         maxWidth="lg"
       >
         {selectedReceipt && (
           <div className="space-y-4 text-xs">
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-2 gap-3">
               <div>
-                <span className="text-slate-400 block text-[11px]">المورد:</span>
+                <span className="text-slate-400 block text-[11px]">المستودع المستلم:</span>
+                <span className="font-bold text-slate-900">{selectedReceipt.warehouse_name}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">المورد / الجهة:</span>
                 <span className="font-bold text-slate-900">{selectedReceipt.supplier_name}</span>
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">تاريخ التوريد:</span>
-                <span className="font-mono text-slate-800">{selectedReceipt.supply_date}</span>
+                <span className="font-mono text-slate-800">{selectedReceipt.receipt_date || selectedReceipt.supply_date}</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[11px]">أمين المستودع:</span>
-                <span className="font-semibold text-slate-800">{selectedReceipt.received_by_name}</span>
+                <span className="text-slate-400 block text-[11px]">أمين المستودع المستلم:</span>
+                <span className="font-semibold text-slate-800">{selectedReceipt.receiver_name || selectedReceipt.received_by_name}</span>
               </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">الطلب المرتبط:</span>
-                <span className="font-mono text-emerald-800 font-bold">{selectedReceipt.request_no || 'داخلي'}</span>
-              </div>
+              {selectedReceipt.notes && (
+                <div className="col-span-2">
+                  <span className="text-slate-400 block text-[11px]">ملاحظات:</span>
+                  <span className="text-slate-700">{selectedReceipt.notes}</span>
+                </div>
+              )}
             </div>
 
             <div className="border border-slate-200 rounded-xl overflow-hidden">

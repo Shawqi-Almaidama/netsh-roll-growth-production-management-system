@@ -17,20 +17,19 @@ import {
   ShieldCheck,
   Package,
   Receipt,
-  ArrowRight
+  ArrowRight,
+  ChevronLeft,
+  Filter,
+  Layers,
+  Boxes,
+  ArrowUpRight
 } from 'lucide-react';
 import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Legend,
-  LineChart,
-  Line
-} from 'recharts';
+  HorizontalWorkflowChart,
+  VerticalBarChart,
+  TrendLineAreaChart,
+  ComparisonBarChart
+} from '../components/charts/DashboardCharts.js';
 import { api } from '../api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { StatCard } from '../components/ui/StatCard.js';
@@ -43,37 +42,65 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const { user, hasRole } = useAuth();
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('30days');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
 
-  const fetchStats = async () => {
+  const fetchStats = async (period = selectedPeriod) => {
     try {
       setLoading(true);
-      const res = await api.getDashboardStats();
-      if (res.success) {
+      setError(null);
+      const res = await api.getDashboardStats(period);
+      if (res && res.success) {
         setData(res);
+      } else {
+        setError(res?.message || 'تعذر تحميل بيانات لوحة التحكم. يرجى إعادة المحاولة.');
       }
     } catch (err) {
       console.error('Failed to load dashboard stats:', err);
+      setError('تعذر الاتصال بالخادم لتحميل لوحة التحكم. يرجى التحقق من اتصال الشبكة وإعادة المحاولة.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStats();
-  }, []);
+    fetchStats(selectedPeriod);
+  }, [selectedPeriod]);
 
-  if (loading || !data) {
+  if (loading && !data) {
     return (
-      <div className="p-12 text-center text-slate-400 text-sm font-medium" dir="rtl">
-        جاري تحميل لوحة التحكم وتحديث المؤشرات التشغيلية...
+      <div className="p-12 text-center text-slate-500 text-sm font-medium space-y-3" dir="rtl">
+        <div className="w-8 h-8 border-3 border-emerald-700 border-t-transparent rounded-full animate-spin mx-auto" />
+        <p>جاري تحميل لوحة التحكم وتحديث المؤشرات التشغيلية...</p>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="p-8 my-8 max-w-md mx-auto bg-white rounded-2xl border border-rose-200 shadow-xs text-center space-y-4" dir="rtl">
+        <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-slate-900">تعذر تحميل بيانات لوحة التحكم</h3>
+          <p className="text-xs text-slate-500 mt-1">{error}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => fetchStats(selectedPeriod)}
+          className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+        >
+          إعادة المحاولة
+        </button>
       </div>
     );
   }
 
   const roleCode = user?.roleCode;
-  const { kpis } = data;
+  const { kpis } = data || { kpis: {} };
 
   const statusArabic: Record<string, { label: string; variant: 'slate' | 'amber' | 'blue' | 'emerald' | 'rose' }> = {
     DRAFT: { label: 'مسودة', variant: 'slate' },
@@ -93,10 +120,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <h1 className="text-xl font-black text-slate-900">
               أهلاً بك، {user?.fullName}
             </h1>
-            <Badge variant="emerald">{user?.roleNameAr}</Badge>
+            <Badge variant="emerald">{user?.roleNameAr || 'مدير النظام'}</Badge>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            نظام إدارة قسم الإنتاج — شركة نتش رول جروث للتنمية والاستثمار الزراعي
+          <p className="text-xs text-slate-600 mt-1 font-medium">
+            نتش رول جروث — نظام إدارة قسم الإنتاج والمزارع الداجنة
           </p>
         </div>
 
@@ -113,7 +140,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </button>
           )}
 
-          {hasRole('PROD_MGR', 'ADMIN') && (
+          {hasRole('PROD_MANAGER', 'ADMIN') && (
             <button
               type="button"
               onClick={() => onNavigate('requisitions')}
@@ -168,7 +195,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </button>
           )}
 
-          {hasRole('ACCOUNTANT', 'ADMIN', 'PROD_MGR') && (
+          {hasRole('ACCOUNTANT', 'ADMIN', 'PROD_MANAGER') && (
             <button
               type="button"
               onClick={() => onNavigate('reports')}
@@ -182,104 +209,656 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 1. ADMIN DASHBOARD (شوقي الميدمة) */}
+      {/* 1. ADMIN DASHBOARD (شوقي الميدمة — مدير النظام) */}
       {/* ------------------------------------------------------------- */}
       {roleCode === 'ADMIN' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              id="stat-users"
-              title="مستخدمو النظام"
-              value={`${kpis.systemUsersCount} مستخدم`}
-              subtitle={`${kpis.activeUsersCount} حسابات نشطة عبر ${kpis.rolesCount} أدوار`}
-              icon={Users}
-              colorTheme="slate"
-            />
-            <StatCard
-              id="stat-houses-flocks"
-              title="الهناجر والقطعان"
-              value={`${kpis.housesCount} هنجر`}
-              subtitle={`${kpis.activeFlocksCount} قطيع نشط (${kpis.currentBirdsCount.toLocaleString('ar-EG')} طائر)`}
-              icon={Home}
-              colorTheme="emerald"
-            />
-            <StatCard
-              id="stat-sales-yer"
-              title="إجمالي إيرادات المبيعات"
-              value={formatCurrency(kpis.totalSalesRevenue)}
-              subtitle="العملة الرسمية: الريال اليمني (YER)"
-              icon={TrendingUp}
-              colorTheme="blue"
-            />
-            <StatCard
-              id="stat-inventory-yer"
-              title="تقييم المخزون الإجمالي"
-              value={formatCurrency(kpis.totalStockValuation)}
-              subtitle="قيمة البضائع والمستلزمات الحالية بالريال اليمني"
-              icon={Warehouse}
-              colorTheme="purple"
-            />
+          {/* Period Filter & Executive Subtitle Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-emerald-700" />
+              <span className="text-xs font-bold text-slate-800">نطاق التقارير والمؤشرات:</span>
+              <span className="text-xs text-slate-500">
+                {selectedPeriod === 'today' && 'بيانات اليوم الفعلي'}
+                {selectedPeriod === '7days' && 'مؤشرات آخر 7 أيام تشغيلية'}
+                {selectedPeriod === '30days' && 'مؤشرات آخر 30 يومًا (الشهر الحالي)'}
+                {selectedPeriod === 'all' && 'كافة السجلات التراكمية في المنظومة'}
+              </span>
+            </div>
+
+            {/* Segmented Period Buttons */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setSelectedPeriod('today')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  selectedPeriod === 'today'
+                    ? 'bg-white text-emerald-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                اليوم
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPeriod('7days')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  selectedPeriod === '7days'
+                    ? 'bg-white text-emerald-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                آخر 7 أيام
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPeriod('30days')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  selectedPeriod === '30days'
+                    ? 'bg-white text-emerald-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                آخر 30 يومًا
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPeriod('all')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  selectedPeriod === 'all'
+                    ? 'bg-white text-emerald-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                كافة الفترات
+              </button>
+            </div>
           </div>
 
+          {/* Section 1: Summary KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div
+              onClick={() => onNavigate('users-management')}
+              className="cursor-pointer transition-transform active:scale-[0.99]"
+            >
+              <StatCard
+                id="stat-admin-users"
+                title="مستخدمو المنظومة"
+                value={`${kpis.systemUsersCount} مستخدمين`}
+                subtitle={`${kpis.activeUsersCount} نشط • ${kpis.inactiveUsersCount} معطل (${kpis.rolesCount} أدوار معتمدة)`}
+                icon={Users}
+                colorTheme="slate"
+              />
+            </div>
+            <div
+              onClick={() => onNavigate('requisitions')}
+              className="cursor-pointer transition-transform active:scale-[0.99]"
+            >
+              <StatCard
+                id="stat-admin-reqs"
+                title="طلبات الاحتياج"
+                value={`${kpis.totalRequisitions} طلب`}
+                subtitle={`${kpis.pendingReviewReqs} قيد المراجعة • ${kpis.approvedReqs} معتمد`}
+                icon={ClipboardList}
+                colorTheme="amber"
+              />
+            </div>
+            <div
+              onClick={() => onNavigate('sales')}
+              className="cursor-pointer transition-transform active:scale-[0.99]"
+            >
+              <StatCard
+                id="stat-admin-sales"
+                title="إيرادات المبيعات (YER)"
+                value={formatCurrency(kpis.totalSalesRevenue)}
+                subtitle={`${kpis.salesInvoicesCount} فاتورة بيع • العملة: الريال اليمني حصراً`}
+                icon={TrendingUp}
+                colorTheme="blue"
+              />
+            </div>
+            <div
+              onClick={() => onNavigate('warehouse')}
+              className="cursor-pointer transition-transform active:scale-[0.99]"
+            >
+              <StatCard
+                id="stat-admin-warehouse"
+                title="سندات التوريد والمخزون"
+                value={`${kpis.warehouseReceiptsCount} سند توريد`}
+                subtitle={`${kpis.totalSuppliedQty.toLocaleString('ar-EG')} وحدة موردة • تقييم ${formatCurrency(kpis.totalStockValuation)}`}
+                icon={Warehouse}
+                colorTheme="purple"
+              />
+            </div>
+          </div>
+
+          {/* Section 2 & 4: Requisitions Workflow Stages & Types Breakdown */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* System Status Card */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-700" />
-                  <span>حالة واستقرار النظام المركزي</span>
-                </h2>
-                <Badge variant="emerald">جاهزية 100%</Badge>
+            {/* Requisitions Workflow Stages Pipeline */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-emerald-700" />
+                      <span>مخطط سير ومراحل طلبات الاحتياج</span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      توزيع الطلبات الفعلية وفق دورة الاعتماد الرسمية من قاعدة البيانات
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('requisitions')}
+                    className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 px-2.5 py-1.5 rounded-lg transition-colors"
+                  >
+                    <span>مراجعة الطلبات</span>
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Workflow Stage Bars */}
+                <div className="w-full pt-1">
+                  <HorizontalWorkflowChart
+                    data={data.workflowStages || []}
+                    totalCount={kpis.totalRequisitions || 0}
+                  />
+                </div>
               </div>
 
-              <div className="space-y-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-xl flex items-center justify-between">
-                  <span className="text-slate-600">قاعدة البيانات والمعاملات:</span>
-                  <span className="font-bold text-slate-900">{data.systemHealth?.database}</span>
+              {/* Status Pills Breakdown */}
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-3 border-t border-slate-100 mt-3 text-center">
+                {data.workflowStages?.map((st: any) => (
+                  <div key={st.status} className="bg-slate-50 p-2 rounded-lg">
+                    <p className="text-[10px] text-slate-500 font-medium">{st.label}</p>
+                    <p className="text-sm font-black text-slate-900 mt-0.5">{st.count}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Requisitions by Category Types */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Boxes className="w-5 h-5 text-blue-700" />
+                      <span>مخطط أنواع طلبات الاحتياج</span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      تصنيف طلبات التوريد والمشتريات حسب القطاعات الأربعة المعتمدة
+                    </p>
+                  </div>
+                  <Badge variant="blue">{kpis.totalRequisitions} إجمالي</Badge>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl flex items-center justify-between">
-                  <span className="text-slate-600">العملة المعتمدة في التقارير والفواتير:</span>
-                  <span className="font-bold text-emerald-800">{data.systemHealth?.currency}</span>
+
+                <div className="w-full pt-1">
+                  <VerticalBarChart
+                    data={(data.requisitionTypes || []).map((t: any) => ({
+                      label: t.label,
+                      value: t.count,
+                      color: '#2563eb',
+                      formattedValue: `${t.count} طلب`
+                    }))}
+                    height={190}
+                    barColor="#2563eb"
+                    unitLabel="طلب"
+                    emptyMessage="لا توجد بيانات كافية للفترة المحددة"
+                  />
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl flex items-center justify-between">
-                  <span className="text-slate-600">حالة الخادم والاستجابة:</span>
-                  <span className="font-bold text-emerald-700">{data.systemHealth?.serverUptime}</span>
+              </div>
+
+              {/* Types Breakdown Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-slate-100 mt-3">
+                {data.requisitionTypes?.map((t: any) => (
+                  <div key={t.type} className="p-2 bg-blue-50/50 rounded-lg border border-blue-100 text-center">
+                    <span className="text-[11px] font-bold text-blue-900 block truncate">{t.label}</span>
+                    <span className="text-xs font-black text-blue-700">{t.count} طلب</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 5: Daily Production (الإنتاج اليومي - DAILY_PRODUCTION) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-emerald-700" />
+                  <span>حركة الإنتاج اليومي ومتابعة القطعان الميدانية</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  بيانات الإنتاج الفعلي للبيض وحالات النفوق المسجلة — مصدر البيانات جدول DAILY_PRODUCTION
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('daily-production')}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg transition-colors self-start sm:self-auto"
+              >
+                <span>سجل الإنتاج اليومي</span>
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Production Metrics Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100/60">
+                <span className="text-xs text-slate-500 block">إجمالي إنتاج الفترة:</span>
+                <span className="text-lg font-black text-emerald-800">
+                  {kpis.totalProdQty?.toLocaleString('ar-EG') || 0} طبق
+                </span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-xs text-slate-500 block">متوسط الإنتاج اليومي:</span>
+                <span className="text-lg font-black text-slate-800">
+                  {kpis.avgDailyProd || 0} طبق/يوم
+                </span>
+              </div>
+              <div className="p-3 bg-rose-50/50 rounded-xl border border-rose-100/60">
+                <span className="text-xs text-slate-500 block">إجمالي النفوق المسجل:</span>
+                <span className="text-lg font-black text-rose-700">
+                  {kpis.totalMortality?.toLocaleString('ar-EG') || 0} طائر
+                </span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-xs text-slate-500 block">عدد سجلات الإنتاج:</span>
+                <span className="text-lg font-black text-slate-800">
+                  {kpis.prodEntryCount || 0} سجل
+                </span>
+              </div>
+            </div>
+
+            {/* Distinct Visual Charts: Egg Production & Mortality Separated */}
+            {(!data.dailyProdTrend || data.dailyProdTrend.length === 0) ? (
+              <div className="p-10 text-center text-slate-400 text-xs bg-slate-50/50 rounded-xl">
+                لا توجد سجلات إنتاج يومي مسجلة في هذه الفترة الزمنية ({selectedPeriod === 'today' ? 'اليوم' : selectedPeriod === '7days' ? 'آخر 7 أيام' : 'الفترة المحددة'})
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
+                {/* Chart 1: Egg Production Quantity (Unit: طبق) */}
+                <div className="p-4 bg-slate-50/70 rounded-xl border border-slate-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-800">مسار إنتاج البيض اليومي</span>
+                    <Badge variant="emerald">الوحدة: طبق</Badge>
+                  </div>
+                  <div className="w-full">
+                    <TrendLineAreaChart
+                      data={(data.dailyProdTrend || []).map((p: any) => ({
+                        date: p.date,
+                        value: p.prodQty,
+                        label: `${p.prodQty} طبق`
+                      }))}
+                      height={200}
+                      strokeColor="#059669"
+                      unitLabel="طبق"
+                      emptyMessage="لا توجد سجلات إنتاج مسجلة للفترة المحددة"
+                    />
+                  </div>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl flex items-center justify-between">
-                  <span className="text-slate-600">التقييم العام للمنظومة:</span>
-                  <span className="font-bold text-slate-800">{data.systemHealth?.statusAr}</span>
+
+                {/* Chart 2: Recorded Bird Mortality (Unit: طائر) */}
+                <div className="p-4 bg-slate-50/70 rounded-xl border border-slate-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-800">حالات النفوق الميداني المسجلة</span>
+                    <Badge variant="rose">الوحدة: طائر</Badge>
+                  </div>
+                  <div className="w-full">
+                    <VerticalBarChart
+                      data={(data.dailyProdTrend || []).map((p: any) => ({
+                        label: p.date,
+                        value: p.mortality,
+                        color: '#ef4444',
+                        formattedValue: `${p.mortality} طائر`
+                      }))}
+                      height={200}
+                      barColor="#ef4444"
+                      unitLabel="طائر"
+                      emptyMessage="لا توجد وفيات مسجلة للفترة المحددة"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section 6: Sales Section (YER) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-blue-700" />
+                  <span>قسم المبيعات وإيرادات الفواتير المعتمدة (بالريال اليمني YER)</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  حركة فواتير البيع للعملاء — العملة الرسمية YER حصراً، ويمكن تحديد نسبة الضريبة اختياريًا وفق إعدادات النظام
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('sales')}
+                className="text-xs font-bold text-blue-700 hover:text-blue-800 flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-lg transition-colors self-start sm:self-auto"
+              >
+                <span>فتح قسم المبيعات</span>
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Sales Metrics Strip */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100/60">
+                <span className="text-xs text-slate-500 block">عدد فواتير الفترة:</span>
+                <span className="text-lg font-black text-slate-900">{kpis.salesInvoicesCount} فاتورة</span>
+              </div>
+              <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100/60">
+                <span className="text-xs text-slate-500 block">إجمالي إيرادات المبيعات:</span>
+                <span className="text-lg font-black text-emerald-800">{formatCurrency(kpis.totalSalesRevenue)}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-xs text-slate-500 block">متوسط قيمة الفاتورة:</span>
+                <span className="text-lg font-black text-slate-800">{formatCurrency(kpis.avgInvoiceValue)}</span>
+              </div>
+            </div>
+
+            {/* Sales Revenue Trend Chart */}
+            {data.dailySalesTrend && data.dailySalesTrend.length > 0 && (
+              <div className="p-4 bg-slate-50/70 rounded-xl border border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold text-slate-800">مسار إيرادات المبيعات اليومية</span>
+                  <Badge variant="blue">العملة: الريال اليمني (YER)</Badge>
+                </div>
+                <div className="w-full">
+                  <VerticalBarChart
+                    data={data.dailySalesTrend.map((s: any) => ({
+                      label: s.date,
+                      value: s.totalAmount,
+                      color: '#2563eb',
+                      formattedValue: formatCurrency(s.totalAmount)
+                    }))}
+                    height={180}
+                    barColor="#2563eb"
+                    unitLabel="ريال يمني"
+                    yAxisFormatter={(val) => `${(val / 1000).toLocaleString('ar-EG')} ألف`}
+                    emptyMessage="لا توجد فواتير مبيعات مسجلة للفترة المحددة"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Sales Invoices List */}
+            <div className="overflow-x-auto">
+              {(!data.recentSales || data.recentSales.length === 0) ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  لا توجد فواتير مبيعات مسجلة للفترة المحددة
+                </div>
+              ) : (
+                <table className="w-full text-xs text-right">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-slate-400 font-medium">
+                      <th className="py-2 px-3">رقم الفاتورة</th>
+                      <th className="py-2 px-3">اسم العميل</th>
+                      <th className="py-2 px-3">تاريخ الفاتورة</th>
+                      <th className="py-2 px-3">المبلغ الإجمالي</th>
+                      <th className="py-2 px-3">حالة السداد</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.recentSales?.map((inv: any) => (
+                      <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{inv.invoice_no}</td>
+                        <td className="py-2.5 px-3 font-medium text-slate-800">{inv.customer_name}</td>
+                        <td className="py-2.5 px-3 text-slate-500">{inv.invoice_date}</td>
+                        <td className="py-2.5 px-3 font-bold text-emerald-800">{formatCurrency(inv.total_amount)}</td>
+                        <td className="py-2.5 px-3">
+                          <Badge variant={inv.payment_status === 'PAID' ? 'emerald' : 'amber'}>
+                            {inv.payment_status === 'PAID' ? 'مسددة بالكامل' : 'قيد السداد'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* Section 7: Warehouse & Supply Movement */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Warehouse className="w-5 h-5 text-purple-700" />
+                  <span>قسم المستودعات المركزية وحركة التوريد والمخزون</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  متابعة سندات التوريد المعتمدة ورصيد الأصناف والمنتجات والتقييم التقديري للتخزين
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('warehouse')}
+                className="text-xs font-bold text-purple-700 hover:text-purple-800 flex items-center gap-1 bg-purple-50 px-3 py-1.5 rounded-lg transition-colors self-start sm:self-auto"
+              >
+                <span>فتح سجل المستودع</span>
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Warehouse Metrics Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 bg-purple-50/50 rounded-xl border border-purple-100/60">
+                <span className="text-xs text-slate-500 block">سندات التوريد:</span>
+                <span className="text-lg font-black text-purple-900">{kpis.warehouseReceiptsCount} سند</span>
+              </div>
+              <div className="p-3 bg-purple-50/50 rounded-xl border border-purple-100/60">
+                <span className="text-xs text-slate-500 block">إجمالي الكميات الموردة:</span>
+                <span className="text-lg font-black text-slate-900">{kpis.totalSuppliedQty?.toLocaleString('ar-EG') || 0} وحدة</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-xs text-slate-500 block">التقييم التقديري للمخزون:</span>
+                <span className="text-lg font-black text-emerald-800">{formatCurrency(kpis.totalStockValuation)}</span>
+              </div>
+              <div className="p-3 bg-rose-50/50 rounded-xl border border-rose-100/60">
+                <span className="text-xs text-slate-500 block">أصناف تحت حد الإنذار:</span>
+                <span className="text-lg font-black text-rose-700">{kpis.lowStockCount} أصناف</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
+              {/* Latest Warehouse Receipts */}
+              <div className="p-4 bg-slate-50/70 rounded-xl border border-slate-100">
+                <h3 className="text-xs font-bold text-slate-800 mb-3 flex items-center justify-between">
+                  <span>أحدث عمليات التوريد المخزني</span>
+                  <span className="text-[11px] text-purple-700 font-medium">سندات معتمدة</span>
+                </h3>
+                {(!data.recentReceipts || data.recentReceipts.length === 0) ? (
+                  <p className="text-xs text-slate-400 py-6 text-center">لا توجد سندات توريد مسجلة بالفترة</p>
+                ) : (
+                  <div className="space-y-2 text-xs">
+                    {data.recentReceipts?.map((rc: any) => (
+                      <div key={rc.id} className="p-2.5 bg-white rounded-lg border border-slate-200/80 flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-slate-900">{rc.product_name}</p>
+                          <p className="text-[11px] text-slate-500">المورد: {rc.supplier_name} • سند #{rc.receipt_no}</p>
+                        </div>
+                        <div className="text-left">
+                          <span className="font-mono font-bold text-purple-800">{rc.quantity} {rc.unit}</span>
+                          <span className="block text-[10px] text-slate-400">{rc.receipt_date}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Stock Status & Alert Levels */}
+              <div className="p-4 bg-slate-50/70 rounded-xl border border-slate-100">
+                <h3 className="text-xs font-bold text-slate-800 mb-3 flex items-center justify-between">
+                  <span>مستوى المخزون والأصناف الحرجة</span>
+                  <span className="text-[11px] text-slate-500 font-normal">الأصناف الأكثر أهمية</span>
+                </h3>
+                {(!data.stockItems || data.stockItems.length === 0) ? (
+                  <p className="text-xs text-slate-400 py-6 text-center">لا توجد أصناف مسجلة</p>
+                ) : (
+                  <div className="space-y-2 text-xs">
+                    {data.stockItems?.map((p: any) => {
+                      const isLow = p.current_stock <= p.min_stock_alert;
+                      return (
+                        <div key={p.id} className="p-2.5 bg-white rounded-lg border border-slate-200/80 flex items-center justify-between">
+                          <div>
+                            <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                              <span>{p.product_name}</span>
+                              {isLow && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-100 text-rose-700 font-bold">
+                                  منخفض
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[11px] text-slate-500">كود: {p.product_code} • {p.category}</p>
+                          </div>
+                          <div className="text-left">
+                            <span className={`font-mono font-bold ${isLow ? 'text-rose-600' : 'text-slate-800'}`}>
+                              {p.current_stock} {p.unit}
+                            </span>
+                            <span className="block text-[10px] text-slate-400">الحد الأدنى: {p.min_stock_alert}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 8 & Section 9: Recent Activities & Users Directory */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Section 8: Administrative Activity & Audit Trail */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                      <span>النشاط الإداري وسجلات العمليات الأخيرة</span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      توثيق آمن للحركات المنفذة مع بيان المسؤول (بدون إظهار أي بيانات حساسة)
+                    </p>
+                  </div>
+                  <Badge variant="emerald">توثيق كامل</Badge>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  {(!data.recentAdminActions || data.recentAdminActions.length === 0) ? (
+                    <p className="text-xs text-slate-400 py-6 text-center">لا توجد حركات إدارية موثقة بالفترة</p>
+                  ) : (
+                    data.recentAdminActions?.map((act: any, idx: number) => (
+                      <div key={idx} className="p-2.5 bg-slate-50 rounded-lg flex items-center justify-between border border-slate-100">
+                        <div>
+                          <span className="font-bold text-slate-900 block">{act.action}</span>
+                          <span className="text-[11px] text-slate-500">
+                            مرجع: <span className="font-mono">{act.ref_no}</span>
+                            {act.user_name && <span> • المنفذ: {act.user_name}</span>}
+                          </span>
+                        </div>
+                        <div className="text-left">
+                          <span className="text-[10px] text-slate-400 block">{act.act_date || act.created_at?.slice(0, 10)}</span>
+                          <Badge variant="slate">{act.status}</Badge>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Notifications Pulse */}
+              <div className="pt-3 border-t border-slate-100 mt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-700">أحدث التنبيهات النظامية:</span>
+                  <span className="text-[11px] text-emerald-700 font-medium">{kpis.unreadNotifs || 0} غير مقروء</span>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  {data.recentSystemNotifications?.slice(0, 2).map((n: any) => (
+                    <div key={n.id} className="p-2 bg-emerald-50/40 rounded border border-emerald-100/50 flex items-center justify-between">
+                      <span className="font-medium text-slate-800 truncate">{n.title}</span>
+                      <span className="text-[10px] text-slate-400 shrink-0">{n.created_at?.slice(0, 10)}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
 
-            {/* Recent Users List */}
+            {/* Section 9: Canonical 6 Users Directory */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-slate-700" />
-                  <span>أحدث الحسابات والمستخدمين المسجلين</span>
-                </h2>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-slate-800" />
+                    <span>المستخدمون المعتمدون في النظام (6 مستخدمين)</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    الهيكل الإداري الرسمي المعتمد لكافة الأدوار في المنظومة
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => onNavigate('users-management')}
-                  className="text-xs font-bold text-emerald-700 hover:text-emerald-800"
+                  className="text-xs font-bold text-slate-800 hover:text-slate-900 flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg transition-colors"
                 >
-                  عرض الكل
+                  <span>إدارة المستخدمين</span>
+                  <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
               </div>
 
               <div className="divide-y divide-slate-100 text-xs">
-                {data.recentUsers?.map((u: any) => (
+                {data.approvedUsers?.map((u: any) => (
                   <div key={u.id} className="py-2.5 flex items-center justify-between">
                     <div>
                       <p className="font-bold text-slate-900">{u.full_name}</p>
-                      <p className="text-[11px] text-slate-500 font-mono">@{u.username}</p>
+                      <p className="text-[11px] text-slate-500 font-mono">@{u.username} • {u.role_name_ar || u.role_code}</p>
                     </div>
-                    <Badge variant={u.is_active ? 'emerald' : 'rose'}>
-                      {u.is_active ? 'نشط' : 'معطل'}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={u.role_code === 'ADMIN' ? 'slate' : u.role_code === 'PROD_MANAGER' ? 'emerald' : u.role_code === 'SALES_OFFICER' ? 'blue' : u.role_code === 'WAREHOUSE_KEEPER' ? 'purple' : 'amber'}>
+                        {u.role_code}
+                      </Badge>
+                      <Badge variant={u.is_active ? 'emerald' : 'rose'}>
+                        {u.is_active ? 'نشط' : 'معطل'}
+                      </Badge>
+                    </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 10: Real Technical System Status Indicators */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                <span>المؤشرات الفنية والتشغيلية للخدمات المركزية</span>
+              </h2>
+              <Badge variant="emerald">الخدمات متصلة وتعمل (Online)</Badge>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-slate-500 block mb-1">حالة الخادم:</span>
+                <span className="font-bold text-slate-900">{data.systemHealth?.serverStatus || 'متصل ونشط (Online)'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-slate-500 block mb-1">حالة قاعدة البيانات:</span>
+                <span className="font-bold text-emerald-800">{data.systemHealth?.databaseStatus || 'متصلة وجاهزة'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-slate-500 block mb-1">حالة واجهة البرمجة (API):</span>
+                <span className="font-bold text-emerald-700">{data.systemHealth?.apiStatus || 'نشط ومستقر'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-slate-500 block mb-1">آخر تحديث للبيانات:</span>
+                <span className="font-mono text-slate-800">{data.systemHealth?.lastUpdated ? new Date(data.systemHealth.lastUpdated).toLocaleTimeString('ar-YE') : 'محدث الآن'}</span>
               </div>
             </div>
           </div>
@@ -289,7 +868,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       {/* ------------------------------------------------------------- */}
       {/* 2. PRODUCTION MANAGER DASHBOARD (أحمد صبر) */}
       {/* ------------------------------------------------------------- */}
-      {(roleCode === 'PROD_MGR' || roleCode === 'PROD_MANAGER') && (
+      {(roleCode === 'PROD_MANAGER' || roleCode === 'PROD_MGR') && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
@@ -341,32 +920,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                 <Activity className="w-5 h-5 text-emerald-600" />
               </div>
 
-              <div className="h-64 w-full" dir="ltr">
-                {(!data.productionTrends || data.productionTrends.length === 0) ? (
-                  <div className="h-full flex items-center justify-center text-slate-400 text-xs">
-                    لا توجد سجلات إنتاج كافية للرسم البياني
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.productionTrends}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="record_date" tick={{ fontSize: 10, fill: '#64748b' }} />
-                      <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0f172a',
-                          borderRadius: '8px',
-                          border: 'none',
-                          color: '#fff',
-                          fontSize: '11px'
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                      <Bar dataKey="total_prod" name="الإنتاج اليومي" fill="#047857" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="total_mortality" name="الوفيات" fill="#f43f5e" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+              <div className="w-full">
+                <ComparisonBarChart
+                  data={data.productionTrends || []}
+                  height={240}
+                  emptyMessage="لا توجد سجلات إنتاج كافية للرسم البياني"
+                />
               </div>
             </div>
 
@@ -681,9 +1240,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             />
             <StatCard
               id="stat-acc-stock-val"
-              title="تقييم المخزون المالي"
+              title="القيمة التقديرية للمخزون"
               value={formatCurrency(kpis.totalStockValuation)}
-              subtitle="قيمة الأصول المخزنية المسعرة بالريال اليمني"
+              subtitle="إجمالي القيمة التقديرية للأصناف المخزنية بالريال اليمني"
               icon={Warehouse}
               colorTheme="emerald"
             />
@@ -774,7 +1333,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               id="stat-sup-prod"
               title="إنتاج اليوم المسجل"
               value={`${kpis.todayProduction.toLocaleString('ar-EG')}`}
-              subtitle="طبق / كجم مسجل اليوم"
+              subtitle="طبق مسجل اليوم"
               icon={PlusCircle}
               colorTheme="purple"
             />

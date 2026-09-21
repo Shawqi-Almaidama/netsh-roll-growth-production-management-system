@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserPlus, Shield, CheckCircle2, XCircle, ArrowRight, RefreshCw, Lock, Mail, Phone, Building } from 'lucide-react';
+import {
+  Users,
+  Shield,
+  CheckCircle2,
+  XCircle,
+  ArrowRight,
+  RefreshCw,
+  Database,
+  RotateCcw,
+  Clock,
+  HardDrive
+} from 'lucide-react';
 import { api } from '../api.js';
 
 interface UserRecord {
@@ -21,21 +32,33 @@ interface RoleRecord {
   description: string;
 }
 
+interface BackupRecord {
+  filename: string;
+  sizeBytes: number;
+  sizeKb: number;
+  createdAt: string;
+}
+
 export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
+  const [activeTab, setActiveTab] = useState<'users' | 'backups'>('users');
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
+  const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // New user form state
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [roleCode, setRoleCode] = useState('SUPERVISOR');
+  const [backupInProgress, setBackupInProgress] = useState(false);
+  const [restoreInProgress, setRestoreInProgress] = useState<string | null>(null);
+
+  // Auto-dismiss feedback after 4 seconds
+  useEffect(() => {
+    if (feedback) {
+      const timer = setTimeout(() => {
+        setFeedback(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [feedback]);
 
   const loadData = async () => {
     setLoading(true);
@@ -58,8 +81,55 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
     }
   };
 
+  const loadBackups = async () => {
+    try {
+      const res = await api.getBackups();
+      if (res.success) {
+        setBackups(res.backups || []);
+      }
+    } catch (err: any) {
+      console.error('Failed to load backups:', err);
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    setBackupInProgress(true);
+    setFeedback(null);
+    try {
+      const res = await api.createBackup();
+      if (res.success) {
+        setFeedback({ type: 'success', message: 'تم إنشاء نسخة احتياطية لقاعدة البيانات بنجاح.' });
+        await loadBackups();
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'فشل إنشاء النسخة الاحتياطية' });
+    } finally {
+      setBackupInProgress(false);
+    }
+  };
+
+  const handleRestoreBackup = async (filename: string) => {
+    if (!window.confirm(`تنبيه: هل أنت متأكد من رغبتك في استعادة النسخة الاحتياطية (${filename})؟\nسيتم استرجاع بيانات النظام إلى توقيت هذه النسخة بأمان.`)) {
+      return;
+    }
+    setRestoreInProgress(filename);
+    setFeedback(null);
+    try {
+      const res = await api.restoreBackup(filename);
+      if (res.success) {
+        setFeedback({ type: 'success', message: res.message || 'تم استعادة النسخة الاحتياطية بنجاح.' });
+        await Promise.all([loadData(), loadBackups()]);
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'فشل استعادة النسخة الاحتياطية' });
+    } finally {
+      setRestoreInProgress(null);
+    }
+  };
+
   useEffect(() => {
     loadData();
+    loadBackups();
   }, []);
 
   const handleToggleStatus = async (user: UserRecord) => {
@@ -74,299 +144,277 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
     }
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setFeedback(null);
-    try {
-      const res = await api.createUser({
-        username,
-        password,
-        fullName,
-        email: email || undefined,
-        phone: phone || undefined,
-        roleCode,
-        branchId: 1
-      });
-      if (res.success) {
-        setFeedback({ type: 'success', message: 'تم إضافة المستخدم بنجاح' });
-        setShowAddModal(false);
-        setUsername('');
-        setPassword('');
-        setFullName('');
-        setEmail('');
-        setPhone('');
-        loadData();
-      }
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'فشل إضافة المستخدم' });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <div className="space-y-6" dir="rtl">
-      {/* Header with clear return button */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2">
             {onBack && (
               <button
                 type="button"
                 onClick={onBack}
-                className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors ml-1"
-                title="رجوع"
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
               >
                 <ArrowRight className="w-4 h-4" />
               </button>
             )}
-            <h1 className="text-xl font-black text-slate-900">المستخدمون والصلاحيات</h1>
+            <h1 className="text-xl font-black text-slate-900">إدارة النظام، المستخدمين، والصيانة</h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            إدارة الحسابات المعتمدة، الأدوار الوظيفية، وتعيين الصلاحيات وفق نموذج التحكم بالوصول
+            إدارة الحسابات المعتمدة والأدوار والصلاحيات والنسخ الاحتياطي والصيانة.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadData}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors"
+            onClick={() => {
+              loadData();
+              loadBackups();
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-2xs"
           >
             <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-            <span>تحديث</span>
+            <span>تحديث البيانات</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 transition-colors shadow-xs"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>إضافة مستخدم جديد</span>
-          </button>
+          {activeTab === 'backups' && (
+            <button
+              type="button"
+              onClick={handleCreateBackup}
+              disabled={backupInProgress}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 transition-colors shadow-xs disabled:opacity-50"
+            >
+              <Database className="w-4 h-4" />
+              <span>{backupInProgress ? 'جاري النسخ...' : 'إنشاء نسخة احتياطية الآن'}</span>
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Operational Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab('users')}
+          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'users'
+              ? 'border-emerald-700 text-emerald-800'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>المستخدمون والأدوار ({users.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('backups');
+            loadBackups();
+          }}
+          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'backups'
+              ? 'border-emerald-700 text-emerald-800'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Database className="w-4 h-4" />
+          <span>النسخ الاحتياطي والصيانة ({backups.length})</span>
+        </button>
+      </div>
+
+      {/* Floating Temporary Feedback Toast */}
       {feedback && (
-        <div className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between border ${
+        <div className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between border shadow-xs transition-all ${
           feedback.type === 'success'
             ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
             : 'bg-rose-50 text-rose-800 border-rose-200'
         }`}>
           <div className="flex items-center gap-2">
-            {feedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <XCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+            {feedback.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
             <span>{feedback.message}</span>
           </div>
-          <button type="button" onClick={() => setFeedback(null)} className="text-slate-400 hover:text-slate-600 text-sm font-bold">×</button>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+          >
+            ×
+          </button>
         </div>
       )}
 
-      {/* Users Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-emerald-600" />
-            <h2 className="text-sm font-bold text-slate-900">سجل المستخدمين المعتمدين</h2>
-            <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">
-              {users.length} مستخدم
-            </span>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="p-8 text-center text-xs text-slate-500 font-medium">جاري جلب بيانات المستخدمين...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50/80 text-slate-600 border-b border-slate-200/80 font-bold">
-                <tr>
-                  <th className="py-3 px-4">#</th>
-                  <th className="py-3 px-4">الاسم الكامل</th>
-                  <th className="py-3 px-4">اسم الدخول</th>
-                  <th className="py-3 px-4">الدور الوظيفي</th>
-                  <th className="py-3 px-4">الفرع</th>
-                  <th className="py-3 px-4">البريد والهاتف</th>
-                  <th className="py-3 px-4 text-center">الحالة</th>
-                  <th className="py-3 px-4 text-center">الإجراء</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {users.map((u) => (
-                  <tr key={`user-row-${u.id}`} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4 font-mono text-slate-400">{u.id}</td>
-                    <td className="py-3 px-4 font-bold text-slate-900">{u.full_name}</td>
-                    <td className="py-3 px-4 font-mono text-slate-600">@{u.username}</td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800">
-                        <Shield className="w-3 h-3 text-emerald-600" />
-                        <span>{u.role_name_ar}</span>
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-500">{u.branch_name || 'الفرع الرئيسي'}</td>
-                    <td className="py-3 px-4 text-slate-500">
-                      <div>{u.email || '-'}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{u.phone || '-'}</div>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        u.is_active === 1 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
-                      }`}>
-                        {u.is_active === 1 ? 'نشط' : 'معطل'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleStatus(u)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
-                          u.is_active === 1
-                            ? 'text-rose-700 hover:bg-rose-50 border border-rose-200'
-                            : 'text-emerald-700 hover:bg-emerald-50 border border-emerald-200'
-                        }`}
-                      >
-                        {u.is_active === 1 ? 'تعطيل الحساب' : 'تفعيل الحساب'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Role Catalog & Permissions Guide */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
-        <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-emerald-600" />
-          <span>الأدوار الوظيفية المعتمدة في النظام</span>
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {roles.map((r) => (
-            <div key={r.role_code} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-bold text-slate-900">{r.role_name_ar}</span>
-                <span className="text-[10px] font-mono text-slate-400">{r.role_code}</span>
-              </div>
-              <p className="text-[11px] text-slate-600 leading-relaxed">{r.description}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Add User Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+      {/* TAB 1: USERS & ROLES */}
+      {activeTab === 'users' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900">إضافة مستخدم جديد للنظام</h3>
+                <Users className="w-4 h-4 text-emerald-600" />
+                <h2 className="text-sm font-bold text-slate-900">سجل المستخدمين المعتمدين</h2>
+                <span className="text-[11px] bg-emerald-50 text-emerald-800 px-2.5 py-0.5 rounded-full font-bold border border-emerald-200">
+                  {users.length} مستخدمين معتمدين
+                </span>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="p-8 text-center text-xs text-slate-500 font-medium">جاري جلب بيانات المستخدمين...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold">
+                    <tr>
+                      <th className="py-3 px-4">#</th>
+                      <th className="py-3 px-4">الاسم الكامل</th>
+                      <th className="py-3 px-4">اسم الدخول</th>
+                      <th className="py-3 px-4">الدور الوظيفي المعتمد</th>
+                      <th className="py-3 px-4">الفرع</th>
+                      <th className="py-3 px-4 text-center">الحالة</th>
+                      <th className="py-3 px-4 text-center">الإجراء</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {users.map((u) => (
+                      <tr key={`user-row-${u.id}`} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3 px-4 font-mono text-slate-400">{u.id}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900">{u.full_name}</td>
+                        <td className="py-3 px-4 font-mono text-emerald-800 font-bold">@{u.username}</td>
+                        <td className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800">
+                            <Shield className="w-3 h-3 text-emerald-600" />
+                            <span>{u.role_name_ar}</span>
+                            <span className="font-mono text-slate-500 font-normal">({u.role_code})</span>
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-500">{u.branch_name || 'الفرع الرئيسي'}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            u.is_active === 1 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}>
+                            {u.is_active === 1 ? 'نشط' : 'معطل'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStatus(u)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                              u.is_active === 1
+                                ? 'text-rose-700 hover:bg-rose-50 border border-rose-200'
+                                : 'text-emerald-700 hover:bg-emerald-50 border border-emerald-200'
+                            }`}
+                          >
+                            {u.is_active === 1 ? 'تعطيل الحساب' : 'تفعيل الحساب'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Role Catalog */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
+            <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-emerald-600" />
+              <span>الأدوار الوظيفية المعتمدة في النظام</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {roles.map((r) => (
+                <div key={r.role_code} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-slate-900">{r.role_name_ar}</span>
+                    <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">{r.role_code}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed mt-1">{r.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: BACKUPS & RESTORE */}
+      {activeTab === 'backups' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center font-bold shrink-0">
+                  <HardDrive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">النسخ الاحتياطي واستعادة قاعدة البيانات</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    إنشاء واسترجاع لقطات آمنة لقاعدة البيانات التشغيلية مع ضمان استمرارية العمليات وسلامة البيانات.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+                onClick={handleCreateBackup}
+                disabled={backupInProgress}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs disabled:opacity-50"
               >
-                ×
+                <Database className="w-4 h-4" />
+                <span>{backupInProgress ? 'جاري أخذ النسخة...' : 'إنشاء نسخة احتياطية جديدة الآن'}</span>
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="space-y-3.5 mt-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل *</label>
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="مثال: عبد الله أحمد"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+            <div className="mt-4">
+              <h4 className="text-xs font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-slate-400" />
+                <span>سجل النسخ الاحتياطية المتوفرة ({backups.length})</span>
+              </h4>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">اسم الدخول *</label>
-                  <input
-                    type="text"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="مثال: abdullah"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900 focus:ring-2 focus:ring-emerald-500"
-                  />
+              {backups.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  لا توجد نسخ احتياطية مسجلة بعد. اضغط على "إنشاء نسخة احتياطية جديدة الآن" للبدء.
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور *</label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900 focus:ring-2 focus:ring-emerald-500"
-                  />
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">اسم ملف النسخة</th>
+                        <th className="p-3">الحجم</th>
+                        <th className="p-3">تاريخ الإنشاء</th>
+                        <th className="p-3 text-center">الإجراءات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {backups.map((b) => (
+                        <tr key={b.filename} className="hover:bg-slate-50/50">
+                          <td className="p-3 font-mono font-bold text-slate-800">{b.filename}</td>
+                          <td className="p-3 font-mono text-slate-600">{b.sizeKb} KB</td>
+                          <td className="p-3 font-mono text-slate-500">{new Date(b.createdAt).toLocaleString('ar-EG')}</td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreBackup(b.filename)}
+                              disabled={restoreInProgress !== null}
+                              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>{restoreInProgress === b.filename ? 'جاري الاستعادة...' : 'استعادة بأمان'}</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">الدور الوظيفي *</label>
-                <select
-                  value={roleCode}
-                  onChange={(e) => setRoleCode(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 font-semibold focus:ring-2 focus:ring-emerald-500"
-                >
-                  {roles.map(r => (
-                    <option key={r.role_code} value={r.role_code}>
-                      {r.role_name_ar} ({r.role_code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="user@example.com"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">رقم الهاتف</label>
-                  <input
-                    type="text"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="0500123456"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-5 py-2 rounded-lg text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50"
-                >
-                  {submitting ? 'جاري الحفظ...' : 'حفظ المستخدم'}
-                </button>
-              </div>
-            </form>
+              )}
+            </div>
           </div>
         </div>
       )}

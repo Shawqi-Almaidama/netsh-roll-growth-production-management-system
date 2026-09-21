@@ -348,7 +348,6 @@ function syncTeamUsers() {
 
   insertOrUpdateRole.run('ADMIN', 'مدير النظام', 'الإشراف الشامل، إدارة المستخدمين، الأدوار، الصلاحيات، والسجلات التاريخية', JSON.stringify(['ALL_PERMISSIONS']));
   insertOrUpdateRole.run('PROD_MANAGER', 'مدير قسم الإنتاج', 'مراجعة واعتماد ورفض طلبات الاحتياج، متابعة الهناجر والإنتاج والتقارير التشغيلية', JSON.stringify(['VIEW_HOUSES', 'VIEW_FLOCKS', 'VIEW_DAILY_PROD', 'REVIEW_REQUISITION', 'APPROVE_REQUISITION', 'VIEW_REPORTS', 'VIEW_DASHBOARD']));
-  insertOrUpdateRole.run('PROD_MGR', 'مدير قسم الإنتاج', 'مراجعة واعتماد ورفض طلبات الاحتياج، متابعة الهناجر والإنتاج والتقارير التشغيلية', JSON.stringify(['VIEW_HOUSES', 'VIEW_FLOCKS', 'VIEW_DAILY_PROD', 'REVIEW_REQUISITION', 'APPROVE_REQUISITION', 'VIEW_REPORTS', 'VIEW_DASHBOARD']));
   insertOrUpdateRole.run('SALES_OFFICER', 'مسؤول المبيعات والفواتير', 'إدارة المنتجات والعملاء، وإصدار فواتير المبيعات مع التحقق من توفر المخزون', JSON.stringify(['VIEW_PRODUCTS', 'MANAGE_PRODUCTS', 'VIEW_CUSTOMERS', 'MANAGE_CUSTOMERS', 'CREATE_SALES_INVOICE', 'VIEW_SALES_INVOICE']));
   insertOrUpdateRole.run('WAREHOUSE_KEEPER', 'أمين المخازن', 'إدارة توريد المنتجات للمخازن، وإصدار سندات التوريد وتحديث أرصدة المخزون', JSON.stringify(['VIEW_WAREHOUSES', 'CREATE_WAREHOUSE_RECEIPT', 'VIEW_WAREHOUSE_RECEIPTS', 'VIEW_PRODUCTS']));
   insertOrUpdateRole.run('ACCOUNTANT', 'المحاسب المالي', 'الاطلاع على فواتير المبيعات، سندات التوريد، والتقارير التشغيلية المعتمدة', JSON.stringify(['VIEW_SALES_INVOICE', 'VIEW_WAREHOUSE_RECEIPTS', 'VIEW_REPORTS', 'VIEW_DASHBOARD']));
@@ -464,12 +463,6 @@ function seedInitialData() {
     },
     {
       code: 'PROD_MANAGER',
-      name_ar: 'مدير قسم الإنتاج',
-      desc: 'مراجعة واعتماد ورفض طلبات الاحتياج، متابعة الهناجر والإنتاج والتقارير التشغيلية',
-      perms: JSON.stringify(['VIEW_HOUSES', 'VIEW_FLOCKS', 'VIEW_DAILY_PROD', 'REVIEW_REQUISITION', 'APPROVE_REQUISITION', 'VIEW_REPORTS', 'VIEW_DASHBOARD'])
-    },
-    {
-      code: 'PROD_MGR',
       name_ar: 'مدير قسم الإنتاج',
       desc: 'مراجعة واعتماد ورفض طلبات الاحتياج، متابعة الهناجر والإنتاج والتقارير التشغيلية',
       perms: JSON.stringify(['VIEW_HOUSES', 'VIEW_FLOCKS', 'VIEW_DAILY_PROD', 'REVIEW_REQUISITION', 'APPROVE_REQUISITION', 'VIEW_REPORTS', 'VIEW_DASHBOARD'])
@@ -671,7 +664,7 @@ function seedInitialData() {
     INSERT INTO NOTIFICATIONS (user_id, role_target, title, message, type, link, is_read)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  insertNotif.run(null, 'PROD_MGR', 'طلب احتياج جديد بانتظار المراجعة', 'قام المشرف بتقديم طلب كتاكيت رقم REQ-20260915-003 بحاجة للمراجعة والاعتماد', 'WARNING', '/requisitions', 0);
+  insertNotif.run(null, 'PROD_MANAGER', 'طلب احتياج جديد بانتظار المراجعة', 'قام المشرف بتقديم طلب كتاكيت رقم REQ-20260915-003 بحاجة للمراجعة والاعتماد', 'WARNING', '/requisitions', 0);
   insertNotif.run(null, 'SUPERVISOR', 'تم اعتماد طلب الأعلاف', 'تم اعتماد طلب الأعلاف رقم REQ-20260910-001 من قِبل مدير قسم الإنتاج', 'SUCCESS', '/requisitions', 0);
   insertNotif.run(null, 'ADMIN', 'تسجيل دخول وتدقيق النظام', 'النظام يعمل بكفاءة وأمان كامل وفق متطلبات الفصلين الثالث والرابع', 'INFO', '/dashboard', 1);
 

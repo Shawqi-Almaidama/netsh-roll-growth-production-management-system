@@ -35,7 +35,7 @@ router.get('/products', authenticate, (req, res) => {
   res.json({ success: true, products });
 });
 
-router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'PROD_MGR', 'ADMIN'), (req, res) => {
+router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { productCode, productName, category, unit, unitPrice, initialStock, minStockAlert, description } = req.body;
 
   if (!productCode || !productName || !category || !unit || unitPrice === undefined) {
@@ -64,7 +64,7 @@ router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'PROD_MGR',
   res.status(201).json({ success: true, message: 'تم إضافة المنتج بنجاح', productId: result.lastInsertRowid });
 });
 
-router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'PROD_MGR', 'ADMIN'), (req, res) => {
+router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const productId = Number(req.params.id);
   const { productName, category, unit, unitPrice, minStockAlert, description } = req.body;
 

@@ -234,10 +234,20 @@ export interface WarehouseReceipt {
   supplier_name: string;
   received_by: number;
   receiver_name: string;
+  received_by_name?: string;
   receipt_date: string;
+  supply_date?: string;
+  request_no?: string;
   batch_number?: string;
   notes?: string;
   created_at: string;
+  items?: Array<{
+    product_id: number;
+    product_name: string;
+    quantity_received: number;
+    unit: string;
+    batch_number?: string;
+  }>;
 }
 
 export interface NotificationItem {

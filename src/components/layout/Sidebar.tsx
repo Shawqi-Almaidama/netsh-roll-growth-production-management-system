@@ -30,7 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, hasRole } = useAuth();
 
   const isSupervisor = hasRole('SUPERVISOR');
-  const isProdMgr = hasRole('PROD_MGR', 'PROD_MANAGER');
+  const isProdMgr = hasRole('PROD_MANAGER');
   const isSales = hasRole('SALES_OFFICER');
   const isWarehouse = hasRole('WAREHOUSE_KEEPER');
   const isAccountant = hasRole('ACCOUNTANT');

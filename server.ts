@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { initializeDatabase } from './server/db.js';
 import { runFullAcademicTestSuite } from './server/testRunner.js';
@@ -14,9 +13,7 @@ import warehouseRoutes from './server/routes/warehouseRoutes.js';
 import reportRoutes from './server/routes/reportRoutes.js';
 import dashboardRoutes from './server/routes/dashboardRoutes.js';
 import notificationRoutes from './server/routes/notificationRoutes.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import systemRoutes from './server/routes/systemRoutes.js';
 
 async function startServer() {
   // Initialize Database schemas, indexes, and baseline seeds
@@ -40,17 +37,8 @@ async function startServer() {
     });
   });
 
-  // Academic Test Matrix Runner Endpoint (T-01 to T-23)
-  app.get('/api/system/audit-test', (req, res) => {
-    const testSummary = runFullAcademicTestSuite();
-    res.json({
-      success: true,
-      suiteName: 'Natural Growth Academic Requirements & Rules Verification Suite (T-01 to T-23)',
-      ...testSummary
-    });
-  });
-
   // Mount Application Routers
+  app.use('/api/system', systemRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/production', productionRoutes);
   app.use('/api/requisitions', requisitionRoutes);

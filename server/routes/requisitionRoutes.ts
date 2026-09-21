@@ -121,7 +121,7 @@ router.get('/:id', authenticate, (req, res) => {
 // POST /requisitions - Create Requisition (FR-03, FR-04, FR-05, FR-06)
 // Bound to: Requester, Type, Date, Items, Quantities (BR-02)
 // -------------------------------------------------------------
-router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const {
     reqType,
     farmId,
@@ -207,7 +207,7 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADMIN'), 
         SUPPLY: 'مستلزمات تشغيلية'
       };
       createNotification({
-        roleTarget: 'PROD_MGR',
+        roleTarget: 'PROD_MANAGER',
         title: `طلب ${typeArabicMap[reqType]} جديد: ${requestNo}`,
         message: `تم تقديم طلب احتياج جديد بواسطة ${req.user!.fullName} بحاجة للمراجعة والاعتماد`,
         type: 'INFO',
@@ -231,9 +231,9 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MGR', 'ADMIN'), 
 // -------------------------------------------------------------
 // POST /requisitions/:id/review - Review Requisition (UC-08, FR-07)
 // Transition: SUBMITTED / UNDER_REVIEW -> APPROVED / REJECTED
-// Only PROD_MGR and ADMIN
+// Only PROD_MANAGER and ADMIN
 // -------------------------------------------------------------
-router.post('/:id/review', authenticate, requireRoles('PROD_MGR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/review', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const reqId = Number(req.params.id);
   const { decision, reviewNotes } = req.body; // decision: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 

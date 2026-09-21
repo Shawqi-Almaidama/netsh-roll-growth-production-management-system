@@ -204,33 +204,36 @@ export const api = {
 
   getReportR01: async (startDate?: string, endDate?: string) => {
     const res = await api.getDailyProductionReport({ startDate, endDate });
-    return { ...res, rows: res.records };
+    return { ...res, reportTitle: 'تقرير الإنتاج اليومي (R-01)', rows: res.records };
   },
   getReportR02: async (startDate?: string, endDate?: string) => {
-    const flocksRes = await api.getFlocks();
-    const rows = (flocksRes.flocks || []).map((f: any) => ({
-      ...f,
-      mortality_rate_pct: f.initial_count > 0 ? (f.total_mortality / f.initial_count) * 100 : 0
-    }));
-    return { success: true, reportTitle: 'تقرير معدل الوفيات والفقد الطبيعي للقطعان (R-02)', rows };
+    const res = await api.getRequisitionsReport({ startDate, endDate });
+    return { ...res, reportTitle: 'تقرير الطلبات (R-02)', rows: res.records };
   },
   getReportR03: async (startDate?: string, endDate?: string) => {
-    const res = await api.getDailyProductionReport({ startDate, endDate });
-    return { ...res, reportTitle: 'تقرير استهلاك الأعلاف ومعدل التحويل الغذائي (R-03)', rows: res.records };
+    const res = await api.getSalesReport({ startDate, endDate });
+    return { ...res, reportTitle: 'تقرير فواتير المبيعات (R-03)', rows: res.records };
   },
   getReportR04: async (startDate?: string, endDate?: string) => {
-    const custRes = await api.getCustomers();
-    const rows = custRes.customers || [];
-    return { success: true, reportTitle: 'تقرير مبيعات المنتجات وإيرادات العملاء (R-04)', rows };
+    const res = await api.getWarehouseReceiptsReport({ startDate, endDate });
+    return { ...res, reportTitle: 'تقرير توريد المنتجات للمخازن (R-04)', rows: res.records };
   },
-  getReportR05: async () => {
-    const prodRes = await api.getProducts();
-    const rows = prodRes.products || [];
-    return { success: true, reportTitle: 'تقرير حركة المخزون وتقييم الأصناف (R-05)', rows };
+  getReportR05: async (filters: Record<string, any> = {}) => {
+    const res = await api.getProductsInventoryReport(filters);
+    return { ...res, reportTitle: 'تقرير المنتجات (R-05)', rows: res.records };
   },
 
+  // System Maintenance, Backup & Restore (ADMIN ONLY)
+  createBackup: () => request<{ success: boolean; message: string; backup: any }>('/system/backup', { method: 'POST' }),
+  getBackups: () => request<{ success: boolean; backups: any[] }>('/system/backups'),
+  restoreBackup: (filename: string) => request<{ success: boolean; message: string }>('/system/restore', {
+    method: 'POST',
+    body: JSON.stringify({ filename })
+  }),
+
   // Dashboard & Notifications
-  getDashboardStats: () => request<{ success: boolean; kpis: any; requisitionStatusBreakdown: any; productionTrends: any[]; recentRequisitions: any[]; recentSales: any[]; lowStockItems: any[] }>('/dashboard/stats'),
+  getDashboardStats: (period?: string) =>
+    request<any>(`/dashboard/stats${period ? `?period=${encodeURIComponent(period)}` : ''}`),
   getNotifications: () => request<{ success: boolean; notifications: any[]; unreadCount: number }>('/notifications'),
   markNotificationRead: (id: number) => request<{ success: boolean; message: string }>(`/notifications/${id}/read`, { method: 'PUT' }),
   markAllNotificationsRead: () => request<{ success: boolean; message: string }>('/notifications/read-all', { method: 'PUT' }),

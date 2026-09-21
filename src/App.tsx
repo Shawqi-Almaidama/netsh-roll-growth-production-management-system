@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import { Navbar } from './components/layout/Navbar.js';
 import { Sidebar } from './components/layout/Sidebar.js';
@@ -16,11 +16,43 @@ import { WarehouseSupplyView } from './views/WarehouseSupplyView.js';
 import { ReportsView } from './views/ReportsView.js';
 import { UsersManagementView } from './views/UsersManagementView.js';
 
+const ROLE_ALLOWED_VIEWS: Record<string, string[]> = {
+  ADMIN: [
+    'dashboard', 'houses', 'daily-production', 'req-create', 'requisitions',
+    'req-review', 'products-customers', 'sales', 'warehouse', 'reports', 'users-management'
+  ],
+  PROD_MANAGER: [
+    'dashboard', 'houses', 'daily-production', 'requisitions', 'req-review',
+    'products-customers', 'warehouse', 'reports'
+  ],
+  SUPERVISOR: [
+    'dashboard', 'houses', 'daily-production', 'req-create', 'requisitions'
+  ],
+  SALES_OFFICER: [
+    'dashboard', 'requisitions', 'products-customers', 'sales'
+  ],
+  WAREHOUSE_KEEPER: [
+    'dashboard', 'requisitions', 'products-customers', 'warehouse'
+  ],
+  ACCOUNTANT: [
+    'dashboard', 'requisitions', 'sales', 'warehouse', 'reports'
+  ]
+};
+
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+
+  // Auto-redirect if user switches or current view is not allowed for the user's role
+  useEffect(() => {
+    if (!user) return;
+    const allowed = ROLE_ALLOWED_VIEWS[user.roleCode] || ['dashboard'];
+    if (!allowed.includes(currentView)) {
+      setCurrentView('dashboard');
+    }
+  }, [user?.roleCode, user?.username, currentView]);
 
   if (loading) {
     return (
@@ -35,6 +67,11 @@ const AppContent: React.FC = () => {
   }
 
   const renderCurrentView = () => {
+    const allowed = ROLE_ALLOWED_VIEWS[user.roleCode] || ['dashboard'];
+    if (!allowed.includes(currentView)) {
+      return <DashboardView onNavigate={setCurrentView} />;
+    }
+
     switch (currentView) {
       case 'dashboard':
         return <DashboardView onNavigate={setCurrentView} />;

@@ -10,7 +10,41 @@ export interface TestResult {
   durationMs: number;
 }
 
+export function cleanupTestData() {
+  try {
+    db.exec(`
+      SAVEPOINT sp_test_cleanup;
+      DELETE FROM REQUISITION_ITEMS WHERE requisition_id IN (
+        SELECT id FROM REQUISITIONS WHERE request_no LIKE 'REQ-%TEST-%' OR request_no LIKE 'REQ-REJ-%'
+      );
+      DELETE FROM REQUISITIONS WHERE request_no LIKE 'REQ-%TEST-%' OR request_no LIKE 'REQ-REJ-%';
+      DELETE FROM INVOICE_LINES WHERE invoice_id IN (
+        SELECT id FROM SALES_INVOICES WHERE invoice_no LIKE 'INV-CALC-%'
+      ) OR product_id IN (
+        SELECT id FROM PRODUCTS WHERE product_code LIKE 'PRD-TST-%' OR product_name = 'منتج اختبار'
+      );
+      DELETE FROM SALES_INVOICES WHERE invoice_no LIKE 'INV-CALC-%';
+      DELETE FROM DAILY_PRODUCTION WHERE flock_id IN (
+        SELECT id FROM FLOCKS WHERE flock_code LIKE 'FLK-TST-%'
+      ) OR house_id IN (
+        SELECT id FROM HOUSES WHERE house_code LIKE 'H-TEST-%' OR house_name LIKE 'هنجر اختبار%'
+      );
+      DELETE FROM WAREHOUSE_RECEIPTS WHERE receipt_no LIKE 'RCP-TST-%' OR supplier_name = 'المورد العربي المعتمد';
+      DELETE FROM NOTIFICATIONS WHERE title = 'إشعار اختبار المنظومة';
+      DELETE FROM FLOCKS WHERE flock_code LIKE 'FLK-TST-%';
+      DELETE FROM PRODUCTS WHERE product_code LIKE 'PRD-TST-%' OR product_name = 'منتج اختبار';
+      DELETE FROM CUSTOMERS WHERE customer_code LIKE 'CUST-TST-%' OR customer_name = 'شركة الاختبار الغذائية';
+      DELETE FROM HOUSES WHERE house_code LIKE 'H-TEST-%' OR house_name LIKE 'هنجر اختبار%';
+      UPDATE PRODUCTS SET current_stock = 1050 WHERE id = 1;
+      RELEASE SAVEPOINT sp_test_cleanup;
+    `);
+  } catch (err) {
+    console.error('Test cleanup error:', err);
+  }
+}
+
 export function runFullAcademicTestSuite(): { passedCount: number; failedCount: number; totalCount: number; results: TestResult[] } {
+  cleanupTestData();
   const results: TestResult[] = [];
 
   function test(id: string, name: string, category: string, fn: () => void) {
@@ -385,6 +419,31 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
       throw new Error(`Accountant name must be 'ماهر نضير', got '${accountant?.full_name}'`);
     }
   });
+
+  // T-25: Unified Role Code Standard (PROD_MANAGER & Zero PROD_MGR)
+  test('T-25', 'توحيد كود الأدوار القياسية والتحقق من اعتماد PROD_MANAGER وخلو قاعدة البيانات من PROD_MGR', 'Architecture', () => {
+    const prodMgrUsers = db.prepare("SELECT COUNT(*) as c FROM USERS WHERE role_code = 'PROD_MGR'").get() as any;
+    if (prodMgrUsers.c > 0) {
+      throw new Error(`Found ${prodMgrUsers.c} users still assigned to legacy role PROD_MGR`);
+    }
+
+    const prodManager = db.prepare("SELECT role_code FROM USERS WHERE username = 'ahmed_saber'").get() as any;
+    if (!prodManager || prodManager.role_code !== 'PROD_MANAGER') {
+      throw new Error(`ahmed_saber must have role_code 'PROD_MANAGER', got '${prodManager?.role_code}'`);
+    }
+
+    const roles = db.prepare('SELECT role_code FROM ROLES').all() as { role_code: string }[];
+    const roleCodes = roles.map(r => r.role_code);
+    if (!roleCodes.includes('PROD_MANAGER')) {
+      throw new Error('PROD_MANAGER role is missing from ROLES table');
+    }
+    if (roleCodes.includes('PROD_MGR')) {
+      throw new Error('Legacy role PROD_MGR is still in ROLES table');
+    }
+  });
+
+  // Automated post-run cleanup: leaves zero test rows in the database
+  cleanupTestData();
 
   const passedCount = results.filter(r => r.status === 'PASSED').length;
   const failedCount = results.filter(r => r.status === 'FAILED').length;

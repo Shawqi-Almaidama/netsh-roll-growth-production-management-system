@@ -41,7 +41,7 @@ export const LoginView: React.FC = () => {
           <Sprout className="w-8 h-8" />
         </div>
         <h2 className="text-2xl font-black text-slate-900 tracking-tight">شركة نتش رول جروث</h2>
-        <p className="text-xs text-slate-500 mt-1 font-medium">نظام إدارة قسم الإنتاج والمزارع الداجنة (ERP)</p>
+        <p className="text-xs text-slate-500 mt-1 font-medium">نظام إدارة قسم الإنتاج والمزارع الداجنة</p>
         <div className="inline-flex items-center gap-1.5 px-3 py-1 mt-2 bg-emerald-50 text-emerald-800 rounded-full text-xs font-semibold border border-emerald-200">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
           <span>تسجيل الدخول الآمن لنظام إدارة الإنتاج</span>

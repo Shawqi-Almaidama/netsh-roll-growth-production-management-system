@@ -5,7 +5,7 @@ import { authenticate, requireRoles, AuthenticatedRequest } from '../auth.js';
 const router = Router();
 
 // تقرير الإنتاج اليومي
-router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MGR', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { startDate, endDate, flockId, houseId } = req.query;
   const user = req.user!;
 
@@ -66,7 +66,7 @@ router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MGR', 
 });
 
 // تقرير طلبات الاحتياج
-router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MGR', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { type, status, startDate, endDate } = req.query;
   const user = req.user!;
 
@@ -176,7 +176,7 @@ router.get('/sales', authenticate, requireRoles('ADMIN', 'SALES_OFFICER', 'ACCOU
 });
 
 // تقرير التوريد للمخازن
-router.get('/warehouse-receipts', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MGR'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/warehouse-receipts', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER'), (req: AuthenticatedRequest, res: Response) => {
   const { warehouseId, productId, startDate, endDate } = req.query;
 
   let query = `
@@ -223,7 +223,7 @@ router.get('/warehouse-receipts', authenticate, requireRoles('ADMIN', 'WAREHOUSE
 });
 
 // تقرير المنتجات والمخزون
-router.get('/products-inventory', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'SALES_OFFICER', 'PROD_MGR'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/products-inventory', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'SALES_OFFICER', 'PROD_MANAGER'), (req: AuthenticatedRequest, res: Response) => {
   const { category, lowStockOnly } = req.query;
 
   let query = `
