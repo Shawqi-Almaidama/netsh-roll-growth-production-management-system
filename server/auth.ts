@@ -1,8 +1,15 @@
+import 'dotenv/config';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { db, verifyPassword } from './db.js';
 
-const JWT_SECRET = process.env.AUTH_SECRET || 'natural_growth_production_secret_key_2026_academic_spec';
+export function getAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret || secret.trim().length === 0) {
+    throw new Error('FATAL SECURITY ERROR: AUTH_SECRET environment variable is not defined.');
+  }
+  return secret.trim();
+}
 
 export interface AuthUser {
   id: number;
@@ -29,7 +36,7 @@ export function generateToken(user: AuthUser): string {
     exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
   };
   const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const signature = crypto.createHmac('sha256', JWT_SECRET).update(payloadStr).digest('base64url');
+  const signature = crypto.createHmac('sha256', getAuthSecret()).update(payloadStr).digest('base64url');
   return `${payloadStr}.${signature}`;
 }
 
@@ -39,7 +46,7 @@ export function verifyToken(token: string): AuthUser | null {
     const parts = token.split('.');
     if (parts.length !== 2) return null;
     const [payloadStr, signature] = parts;
-    const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(payloadStr).digest('base64url');
+    const expectedSig = crypto.createHmac('sha256', getAuthSecret()).update(payloadStr).digest('base64url');
     if (signature !== expectedSig) return null;
 
     const payload = JSON.parse(Buffer.from(payloadStr, 'base64url').toString('utf-8'));

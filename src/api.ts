@@ -47,6 +47,7 @@ export const api = {
     }),
   getMe: () => request<{ success: boolean; user: any }>('/auth/me'),
   getRoles: () => request<{ success: boolean; roles: any[] }>('/auth/roles'),
+  getBranches: () => request<{ success: boolean; branches: any[] }>('/auth/branches'),
   getUsers: () => request<{ success: boolean; users: any[] }>('/auth/users'),
   createUser: (userData: any) =>
     request<{ success: boolean; message: string; userId: number }>('/auth/users', {

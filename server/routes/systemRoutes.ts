@@ -15,9 +15,9 @@ if (!fs.existsSync(backupsDir)) {
 }
 
 // -------------------------------------------------------------
-// GET /api/system/audit-test - Academic Verification Runner
+// GET /api/system/audit-test - Academic Verification Runner (ADMIN ONLY)
 // -------------------------------------------------------------
-router.get('/audit-test', (req, res) => {
+router.get('/audit-test', authenticate, requireRoles('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const testSummary = runFullAcademicTestSuite();
   res.json({
     success: true,

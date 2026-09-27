@@ -105,6 +105,12 @@ router.get('/roles', authenticate, (req, res) => {
   res.json({ success: true, roles });
 });
 
+// Branches list
+router.get('/branches', authenticate, (req, res) => {
+  const branches = db.prepare('SELECT id, branch_code, branch_name, location FROM BRANCHES ORDER BY id ASC').all();
+  res.json({ success: true, branches });
+});
+
 // Users management (A-06 ADMIN only)
 router.get('/users', authenticate, requireRoles('ADMIN'), (req, res) => {
   const users = db.prepare(`
@@ -120,29 +126,85 @@ router.get('/users', authenticate, requireRoles('ADMIN'), (req, res) => {
 router.post('/users', authenticate, requireRoles('ADMIN'), (req, res) => {
   const { username, password, fullName, email, phone, roleCode, branchId } = req.body;
 
-  if (!username || !password || !fullName || !roleCode) {
+  // 1. Strict required fields and type validation
+  if (!username || typeof username !== 'string' ||
+      !password || typeof password !== 'string' ||
+      !fullName || typeof fullName !== 'string' ||
+      !roleCode || typeof roleCode !== 'string') {
     return res.status(400).json({ success: false, message: 'الحقول الإلزامية: اسم المستخدم، كلمة المرور، الاسم الكامل، والدور' });
   }
 
-  const existing = db.prepare('SELECT id FROM USERS WHERE username = ?').get(username.trim());
+  const cleanFullName = fullName.trim();
+  const cleanUsername = username.trim().toLowerCase();
+  const cleanPassword = password.trim();
+  const cleanRole = roleCode.trim();
+
+  if (cleanFullName.length < 2 || cleanFullName.length > 100) {
+    return res.status(400).json({ success: false, message: 'الاسم الكامل يجب أن يكون بين حرفين و100 حرف' });
+  }
+
+  if (!/^[a-zA-Z0-9_]{3,30}$/.test(cleanUsername)) {
+    return res.status(400).json({ success: false, message: 'اسم الدخول يجب أن يتكون من 3 إلى 30 حرفاً إنجليزياً أو رقماً دون مسافات' });
+  }
+
+  if (cleanPassword.length < 4 || cleanPassword.length > 100) {
+    return res.status(400).json({ success: false, message: 'كلمة المرور يجب أن تكون بين 4 و100 خانة' });
+  }
+
+  // 2. Validate role exists in ROLES table
+  const roleRecord = db.prepare('SELECT role_code FROM ROLES WHERE role_code = ?').get(cleanRole);
+  if (!roleRecord) {
+    return res.status(400).json({ success: false, message: 'الدور الوظيفي المحدد غير موجود في قائمة الأدوار المعتمدة' });
+  }
+
+  // 3. Validate branch exists in BRANCHES table
+  const targetBranchId = branchId !== undefined && branchId !== null ? Number(branchId) : 1;
+  const branchRecord = db.prepare('SELECT id FROM BRANCHES WHERE id = ?').get(targetBranchId);
+  if (!branchRecord) {
+    return res.status(400).json({ success: false, message: 'الفرع المحدد غير موجود في النظام' });
+  }
+
+  // 4. Check duplicate username
+  const existing = db.prepare('SELECT id FROM USERS WHERE username = ?').get(cleanUsername);
   if (existing) {
     return res.status(400).json({ success: false, message: 'اسم المستخدم مسجل مسبقاً، يرجى اختيار اسم مستخدم آخر' });
   }
 
-  const { hash, salt } = hashPassword(password);
-  const stmt = db.prepare(`
-    INSERT INTO USERS (username, password_hash, salt, full_name, email, phone, role_code, branch_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  const { hash, salt } = hashPassword(cleanPassword);
 
-  const result = stmt.run(username.trim(), hash, salt, fullName.trim(), email || null, phone || null, roleCode, branchId || 1);
+  try {
+    db.exec('BEGIN TRANSACTION;');
 
-  if (roleCode === 'SUPERVISOR') {
-    db.prepare('INSERT INTO SUPERVISORS (user_id, full_name, phone, specialization) VALUES (?, ?, ?, ?)')
-      .run(Number(result.lastInsertRowid), fullName.trim(), phone || null, 'مشرف إنتاج');
+    const stmt = db.prepare(`
+      INSERT INTO USERS (username, password_hash, salt, full_name, email, phone, role_code, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      cleanUsername,
+      hash,
+      salt,
+      cleanFullName,
+      email && typeof email === 'string' && email.trim().length > 0 ? email.trim() : null,
+      phone && typeof phone === 'string' && phone.trim().length > 0 ? phone.trim() : null,
+      cleanRole,
+      targetBranchId
+    );
+
+    const userId = Number(result.lastInsertRowid);
+
+    if (cleanRole === 'SUPERVISOR') {
+      db.prepare('INSERT INTO SUPERVISORS (user_id, full_name, phone, specialization) VALUES (?, ?, ?, ?)')
+        .run(userId, cleanFullName, phone && typeof phone === 'string' ? phone.trim() : null, 'مشرف إنتاج');
+    }
+
+    db.exec('COMMIT;');
+    res.status(201).json({ success: true, message: 'تم إضافة المستخدم بنجاح', userId });
+  } catch (err: any) {
+    try { db.exec('ROLLBACK;'); } catch {}
+    console.error('User creation error:', err);
+    res.status(500).json({ success: false, message: 'حدث خطأ أثناء حفظ المستخدم الجديد' });
   }
-
-  res.status(201).json({ success: true, message: 'تم إضافة المستخدم بنجاح', userId: result.lastInsertRowid });
 });
 
 router.put('/users/:id/toggle', authenticate, requireRoles('ADMIN'), (req, res) => {

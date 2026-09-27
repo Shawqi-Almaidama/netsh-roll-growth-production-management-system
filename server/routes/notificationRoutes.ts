@@ -26,9 +26,27 @@ router.get('/', authenticate, (req: AuthenticatedRequest, res: Response) => {
   res.json({ success: true, notifications, unreadCount });
 });
 
-// PUT /api/notifications/:id/read - Mark single as read
+// PUT /api/notifications/:id/read - Mark single as read (Object-Level Authorization)
 router.put('/:id/read', authenticate, (req: AuthenticatedRequest, res: Response) => {
   const notifId = Number(req.params.id);
+  if (!Number.isInteger(notifId) || notifId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف الإشعار غير صالح' });
+  }
+
+  const notif = db.prepare('SELECT id, user_id, role_target FROM NOTIFICATIONS WHERE id = ?').get(notifId) as any;
+  if (!notif) {
+    return res.status(404).json({ success: false, message: 'الإشعار غير موجود' });
+  }
+
+  // Object-level authorization check: Must belong to user or role or ALL
+  const isOwner = (notif.user_id !== null && notif.user_id === req.user!.id) ||
+                  (notif.role_target !== null && (notif.role_target === req.user!.roleCode || notif.role_target === 'ALL')) ||
+                  req.user!.roleCode === 'ADMIN';
+
+  if (!isOwner) {
+    return res.status(403).json({ success: false, message: 'غير مصرح لك بتعديل هذا الإشعار' });
+  }
+
   db.prepare('UPDATE NOTIFICATIONS SET is_read = 1 WHERE id = ?').run(notifId);
   res.json({ success: true, message: 'تم تعليم الإشعار كمقروء' });
 });

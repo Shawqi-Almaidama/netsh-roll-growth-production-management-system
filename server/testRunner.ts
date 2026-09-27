@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { db, hashPassword, verifyPassword } from './db.js';
 import { generateToken, verifyToken } from './auth.js';
 

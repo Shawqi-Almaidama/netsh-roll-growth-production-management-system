@@ -188,7 +188,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
     }
   };
 
-  const handleReviewDecision = async (decision: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED') => {
+  const handleReviewDecision = async (decision: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED') => {
     if (!selectedReq) return;
     setReviewing(true);
     try {
@@ -778,30 +778,60 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                   </span>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={reviewing}
-                      onClick={() => handleReviewDecision('UNDER_REVIEW')}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
-                    >
-                      بدء المراجعة
-                    </button>
-                    <button
-                      type="button"
-                      disabled={reviewing}
-                      onClick={() => handleReviewDecision('APPROVED')}
-                      className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow-xs transition-colors"
-                    >
-                      اعتماد الطلب
-                    </button>
-                    <button
-                      type="button"
-                      disabled={reviewing}
-                      onClick={() => handleReviewDecision('REJECTED')}
-                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg transition-colors"
-                    >
-                      رفض الطلب
-                    </button>
+                    {selectedReq.status === 'SUBMITTED' && (
+                      <button
+                        type="button"
+                        disabled={reviewing}
+                        onClick={() => handleReviewDecision('UNDER_REVIEW')}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-xs"
+                      >
+                        بدء المراجعة الفنية
+                      </button>
+                    )}
+
+                    {selectedReq.status === 'UNDER_REVIEW' && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={reviewing}
+                          onClick={() => handleReviewDecision('APPROVED')}
+                          className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow-xs transition-colors"
+                        >
+                          اعتماد الطلب
+                        </button>
+                        <button
+                          type="button"
+                          disabled={reviewing}
+                          onClick={() => handleReviewDecision('REJECTED')}
+                          className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg transition-colors"
+                        >
+                          رفض الطلب
+                        </button>
+                      </>
+                    )}
+
+                    {selectedReq.status === 'APPROVED' && (
+                      <button
+                        type="button"
+                        disabled={reviewing}
+                        onClick={() => handleReviewDecision('COMPLETED')}
+                        className="px-4 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white font-bold rounded-lg shadow-xs transition-colors"
+                      >
+                        اكتمال الطلب والتوريد
+                      </button>
+                    )}
+
+                    {(selectedReq.status === 'REJECTED' || selectedReq.status === 'COMPLETED') && (
+                      <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                        {selectedReq.status === 'REJECTED' ? 'الطلب في حالة نهائية (مرفوض)' : 'الطلب في حالة نهائية (مكتمل ومورّد)'}
+                      </span>
+                    )}
+
+                    {selectedReq.status === 'DRAFT' && (
+                      <span className="text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
+                        الطلب لا يزال في حالة مسودة
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

@@ -4,6 +4,24 @@ import { authenticate, requireRoles, AuthenticatedRequest, createNotification } 
 
 const router = Router();
 
+// -------------------------------------------------------------
+// REQUISITION STATE MACHINE (Rules 9, 10, 11, 12, 13, 14, 15)
+// -------------------------------------------------------------
+export const ALLOWED_REQUISITION_TRANSITIONS: Record<string, string[]> = {
+  DRAFT: ['SUBMITTED'],
+  SUBMITTED: ['UNDER_REVIEW'],
+  UNDER_REVIEW: ['APPROVED', 'REJECTED'],
+  APPROVED: ['COMPLETED'],
+  REJECTED: [],
+  COMPLETED: []
+};
+
+export function isValidRequisitionTransition(currentStatus: string, nextStatus: string): boolean {
+  const allowed = ALLOWED_REQUISITION_TRANSITIONS[currentStatus];
+  if (!allowed) return false;
+  return allowed.includes(nextStatus);
+}
+
 // Generate distinct Request Number: REQ-YYYYMMDD-XXXX
 function generateRequestNo(type: string): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -151,6 +169,13 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN
     }
   }
 
+  if (status && status !== 'DRAFT' && status !== 'SUBMITTED') {
+    return res.status(400).json({
+      success: false,
+      message: 'لا يمكن إنشاء طلب بحالة مباشرة غير DRAFT أو SUBMITTED. يجب أن يمر الطلب عبر دورة العمل (Workflow)'
+    });
+  }
+
   const initialStatus = status === 'DRAFT' ? 'DRAFT' : 'SUBMITTED';
   const requestNo = generateRequestNo(reqType);
   const finalDate = requestDate || new Date().toISOString().slice(0, 10);
@@ -229,15 +254,64 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN
 });
 
 // -------------------------------------------------------------
+// POST /requisitions/:id/submit - Submit a Draft Requisition (DRAFT -> SUBMITTED)
+// -------------------------------------------------------------
+router.post('/:id/submit', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  const reqId = Number(req.params.id);
+  if (!Number.isInteger(reqId) || reqId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف طلب الاحتياج غير صالح' });
+  }
+
+  const requisition = db.prepare('SELECT id, request_no, requester_id, status FROM REQUISITIONS WHERE id = ?').get(reqId) as any;
+  if (!requisition) {
+    return res.status(404).json({ success: false, message: 'طلب الاحتياج غير موجود' });
+  }
+
+  // Object-level check: only creator or ADMIN can submit draft
+  if (requisition.requester_id !== req.user!.id && req.user!.roleCode !== 'ADMIN') {
+    return res.status(403).json({ success: false, message: 'غير مصرح لك بتقديم هذا الطلب' });
+  }
+
+  if (!isValidRequisitionTransition(requisition.status, 'SUBMITTED')) {
+    return res.status(400).json({
+      success: false,
+      error: 'انتقال حالة الطلب غير مسموح',
+      message: `لا يمكن تغيير حالة الطلب من ${requisition.status} إلى SUBMITTED`
+    });
+  }
+
+  db.prepare("UPDATE REQUISITIONS SET status = 'SUBMITTED' WHERE id = ?").run(reqId);
+
+  createNotification({
+    roleTarget: 'PROD_MANAGER',
+    title: `طلب جديد تم تقديمه: ${requisition.request_no}`,
+    message: `تم تقديم طلب احتياج بواسطة ${req.user!.fullName} بحاجة للمراجعة والاعتماد`,
+    type: 'INFO',
+    link: '/requisitions'
+  });
+
+  res.json({ success: true, message: 'تم تقديم طلب الاحتياج بنجاح للمراجعة والاعتماد', status: 'SUBMITTED' });
+});
+
+// -------------------------------------------------------------
 // POST /requisitions/:id/review - Review Requisition (UC-08, FR-07)
-// Transition: SUBMITTED / UNDER_REVIEW -> APPROVED / REJECTED
-// Only PROD_MANAGER and ADMIN
+// State Machine Enforced:
+// SUBMITTED -> UNDER_REVIEW
+// UNDER_REVIEW -> APPROVED | REJECTED
+// APPROVED -> COMPLETED
+// REJECTED -> terminal (no transitions)
+// COMPLETED -> terminal (no transitions)
+// Only PROD_MANAGER and ADMIN (ADMIN cannot bypass state integrity)
 // -------------------------------------------------------------
 router.post('/:id/review', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const reqId = Number(req.params.id);
+  if (!Number.isInteger(reqId) || reqId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف طلب الاحتياج غير صالح' });
+  }
+
   const { decision, reviewNotes } = req.body; // decision: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
-  if (!decision || !['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'COMPLETED'].includes(decision)) {
+  if (!decision || typeof decision !== 'string' || !['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'COMPLETED'].includes(decision)) {
     return res.status(400).json({ success: false, message: 'قرار المراجعة غير صالح (يجب أن يكون UNDER_REVIEW أو APPROVED أو REJECTED أو COMPLETED)' });
   }
 
@@ -246,33 +320,45 @@ router.post('/:id/review', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), 
     return res.status(404).json({ success: false, message: 'طلب الاحتياج غير موجود' });
   }
 
-  // Validate status transition integrity (Rule 38)
-  if (requisition.status === 'REJECTED' && decision === 'APPROVED') {
+  // Enforce Requisition State Machine strictly for ALL roles including ADMIN
+  if (!isValidRequisitionTransition(requisition.status, decision)) {
     return res.status(400).json({
       success: false,
-      message: 'لا يمكن اعتماد طلب مرفوض مباشرة. يجب إعادة تقديم الطلب أو مراجعته أولاً'
+      error: 'انتقال حالة الطلب غير مسموح',
+      message: `لا يمكن تغيير حالة الطلب من ${requisition.status} إلى ${decision}`
     });
   }
 
   const reviewDate = new Date().toISOString().slice(0, 10);
+  const cleanNotes = typeof reviewNotes === 'string' && reviewNotes.trim().length > 0 ? reviewNotes.trim() : null;
 
-  db.prepare(`
-    UPDATE REQUISITIONS
-    SET status = ?,
-        reviewer_id = ?,
-        review_date = ?,
-        review_notes = COALESCE(?, review_notes)
-    WHERE id = ?
-  `).run(decision, req.user!.id, reviewDate, reviewNotes || null, reqId);
+  try {
+    db.exec('BEGIN TRANSACTION;');
 
-  // Notify Requester about the decision
+    db.prepare(`
+      UPDATE REQUISITIONS
+      SET status = ?,
+          reviewer_id = ?,
+          review_date = ?,
+          review_notes = COALESCE(?, review_notes)
+      WHERE id = ?
+    `).run(decision, req.user!.id, reviewDate, cleanNotes, reqId);
+
+    db.exec('COMMIT;');
+  } catch (err: any) {
+    try { db.exec('ROLLBACK;'); } catch {}
+    console.error('Error reviewing requisition:', err);
+    return res.status(500).json({ success: false, message: 'حدث خطأ أثناء تحديث حالة الطلب' });
+  }
+
+  // Notify Requester about the decision ONLY AFTER transaction commits
   const decisionText = decision === 'APPROVED' ? 'اعتماد' : decision === 'REJECTED' ? 'رفض' : decision === 'UNDER_REVIEW' ? 'قيد المراجعة' : 'اكتمال';
   const notifType = decision === 'APPROVED' ? 'SUCCESS' : decision === 'REJECTED' ? 'ALERT' : 'INFO';
 
   createNotification({
     userId: requisition.requester_id,
     title: `تحديث حالة طلبك: ${requisition.request_no}`,
-    message: `تم ${decisionText} الطلب من قِبل ${req.user!.fullName}. ملاحظات: ${reviewNotes || 'لا توجد ملاحظات إضافية'}`,
+    message: `تم ${decisionText} الطلب من قِبل ${req.user!.fullName}. ملاحظات: ${cleanNotes || 'لا توجد ملاحظات إضافية'}`,
     type: notifType,
     link: '/requisitions'
   });
