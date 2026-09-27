@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -15,6 +16,15 @@ export const db = new DatabaseSync(dbPath);
 // Enable Foreign Key Enforcement
 db.exec('PRAGMA foreign_keys = ON;');
 db.exec('PRAGMA journal_mode = WAL;');
+
+// Get initial seed password strictly from environment variable with zero hardcoded fallback
+export function getSeedDefaultPassword(): string {
+  const seedPassword = process.env.SEED_DEFAULT_PASSWORD;
+  if (!seedPassword || seedPassword.trim().length === 0) {
+    throw new Error('FATAL SECURITY ERROR: SEED_DEFAULT_PASSWORD environment variable is not defined for initial database seeding.');
+  }
+  return seedPassword.trim();
+}
 
 // Hash password utility
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
@@ -363,8 +373,6 @@ function syncTeamUsers() {
     { username: 'supervisor1', name: 'مشرف الإنتاج', email: 'supervisor@naturalgrowth.com', role: 'SUPERVISOR', branch_id: 1 }
   ];
 
-  const { hash, salt } = hashPassword('123456');
-
   // 1. Ensure all 6 approved users exist and have updated credentials/role
   for (const u of approvedUsers) {
     const existing = db.prepare('SELECT id FROM USERS WHERE username = ?').get(u.username) as { id: number } | undefined;
@@ -372,6 +380,8 @@ function syncTeamUsers() {
       db.prepare('UPDATE USERS SET full_name = ?, role_code = ?, email = ?, is_active = 1 WHERE id = ?')
         .run(u.name, u.role, u.email, existing.id);
     } else {
+      const seedPassword = getSeedDefaultPassword();
+      const { hash, salt } = hashPassword(seedPassword);
       db.prepare(`
         INSERT INTO USERS (username, password_hash, salt, full_name, email, phone, role_code, branch_id, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
@@ -519,7 +529,8 @@ function seedInitialData() {
   `);
 
   for (const u of teamUsers) {
-    const { hash, salt } = hashPassword('123456');
+    const seedPassword = getSeedDefaultPassword();
+    const { hash, salt } = hashPassword(seedPassword);
     insertUser.run(u.username, hash, salt, u.name, u.email, '0500123456', u.role, u.branch_id);
   }
 

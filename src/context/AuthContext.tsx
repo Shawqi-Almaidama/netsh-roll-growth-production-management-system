@@ -77,8 +77,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const quickSwitchUser = async (username: string) => {
-    await login(username, '123456');
+  const quickSwitchUser = async (_username: string) => {
+    logout();
   };
 
   const logout = () => {

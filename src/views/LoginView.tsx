@@ -3,9 +3,9 @@ import { Sprout, Lock, User, ShieldCheck, ArrowLeft, AlertCircle } from 'lucide-
 import { useAuth, DEMO_ACCOUNTS } from '../context/AuthContext.js';
 
 export const LoginView: React.FC = () => {
-  const { login, quickSwitchUser, loading } = useAuth();
+  const { login, loading } = useAuth();
   const [username, setUsername] = useState('supervisor1');
-  const [password, setPassword] = useState('123456');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -22,16 +22,9 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleQuickLogin = async (uname: string) => {
+  const handleQuickLogin = (uname: string) => {
+    setUsername(uname);
     setError(null);
-    setSubmitting(true);
-    try {
-      await quickSwitchUser(uname);
-    } catch (err: any) {
-      setError(err.message || 'فشل تسجيل الدخول بحساب الدور المحدد');
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   return (
@@ -87,7 +80,7 @@ export const LoginView: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="block w-full pr-10 pl-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono"
-                  placeholder="••••••••"
+                  placeholder="أدخل كلمة المرور"
                 />
               </div>
             </div>
@@ -106,7 +99,7 @@ export const LoginView: React.FC = () => {
           <div className="mt-8 pt-6 border-t border-slate-100">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-bold text-slate-700">حسابات مستخدمي النظام المعتمدين:</span>
-              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono font-medium">كلمة المرور: 123456</span>
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">أدخل كلمة المرور</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
