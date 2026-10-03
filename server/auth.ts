@@ -5,7 +5,7 @@ import { db, verifyPassword } from './db.js';
 
 export function getAuthSecret(): string {
   const secret = process.env.AUTH_SECRET;
-  if (!secret || secret.trim().length === 0) {
+  if (!secret || secret.trim().length === 0 || secret.trim() === '<SET_IN_ENVIRONMENT>') {
     throw new Error('FATAL SECURITY ERROR: AUTH_SECRET environment variable is not defined.');
   }
   return secret.trim();

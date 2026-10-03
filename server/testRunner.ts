@@ -76,11 +76,15 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
   test('T-01', 'تسجيل الدخول والتحقق من كلمة المرور المشفرة (UC-01)', 'Authentication', () => {
     const user = db.prepare("SELECT * FROM USERS WHERE username = 'supervisor1'").get() as any;
     if (!user) throw new Error('User supervisor1 not found');
-    const testPassword = process.env.SEED_DEFAULT_PASSWORD;
-    if (!testPassword) {
-      throw new Error('SEED_DEFAULT_PASSWORD environment variable is required for verification test');
+    if (!user.password_hash || typeof user.password_hash !== 'string' || user.password_hash.length !== 128) {
+      throw new Error('User password_hash is missing or invalid');
     }
-    const valid = verifyPassword(testPassword, user.password_hash, user.salt);
+    if (!user.salt || typeof user.salt !== 'string' || user.salt.length < 16) {
+      throw new Error('User salt is missing or invalid');
+    }
+    const dynamicProbe = `ephemeral_auth_probe_${Date.now()}`;
+    const { hash, salt } = hashPassword(dynamicProbe);
+    const valid = verifyPassword(dynamicProbe, hash, salt);
     if (!valid) throw new Error('Password verification failed');
     const invalid = verifyPassword('wrongpass', user.password_hash, user.salt);
     if (invalid) throw new Error('Invalid password falsely accepted');

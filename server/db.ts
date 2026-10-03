@@ -20,7 +20,7 @@ db.exec('PRAGMA journal_mode = WAL;');
 // Get initial seed password strictly from environment variable with zero hardcoded fallback
 export function getSeedDefaultPassword(): string {
   const seedPassword = process.env.SEED_DEFAULT_PASSWORD;
-  if (!seedPassword || seedPassword.trim().length === 0) {
+  if (!seedPassword || seedPassword.trim().length === 0 || seedPassword.trim() === '<SET_IN_ENVIRONMENT>') {
     throw new Error('FATAL SECURITY ERROR: SEED_DEFAULT_PASSWORD environment variable is not defined for initial database seeding.');
   }
   return seedPassword.trim();
