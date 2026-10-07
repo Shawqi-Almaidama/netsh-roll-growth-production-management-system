@@ -46,8 +46,13 @@ export function verifyToken(token: string): AuthUser | null {
     const parts = token.split('.');
     if (parts.length !== 2) return null;
     const [payloadStr, signature] = parts;
+    if (!payloadStr || !signature) return null;
     const expectedSig = crypto.createHmac('sha256', getAuthSecret()).update(payloadStr).digest('base64url');
-    if (signature !== expectedSig) return null;
+    const sigBuf = Buffer.from(signature, 'utf-8');
+    const expectedBuf = Buffer.from(expectedSig, 'utf-8');
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+      return null;
+    }
 
     const payload = JSON.parse(Buffer.from(payloadStr, 'base64url').toString('utf-8'));
     if (payload.exp && Date.now() > payload.exp) {
@@ -115,9 +120,7 @@ export function requireRoles(...allowedRoles: string[]) {
     }
 
     const userRole = req.user.roleCode;
-    const isAllowed = allowedRoles.includes(userRole) ||
-      ((userRole === 'PROD_MANAGER' || userRole === 'PROD_MGR') &&
-       (allowedRoles.includes('PROD_MGR') || allowedRoles.includes('PROD_MANAGER')));
+    const isAllowed = allowedRoles.includes(userRole);
 
     if (isAllowed) {
       return next();

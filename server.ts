@@ -23,9 +23,26 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Security Headers Middleware
+  app.disable('x-powered-by');
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
   // Middlewares
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+  // Handle malformed JSON payloads gracefully without leaking stack traces
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof SyntaxError && 'body' in err) {
+      return res.status(400).json({ success: false, message: 'صيغة البيانات المرسلة (JSON) غير صالحة' });
+    }
+    next(err);
+  });
 
   // API Health Check
   app.get('/api/health', (req, res) => {
@@ -49,6 +66,11 @@ async function startServer() {
   app.use('/api/reports', reportRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/notifications', notificationRoutes);
+
+  // Catch-all for unknown /api/* routes
+  app.use('/api/*', (req, res) => {
+    res.status(404).json({ success: false, message: 'نقطة النهاية المطلوبة غير موجودة' });
+  });
 
   // Vite Middleware (Dev) / Static Asset Serving (Production)
   if (process.env.NODE_ENV !== 'production') {

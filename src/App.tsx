@@ -29,13 +29,13 @@ const ROLE_ALLOWED_VIEWS: Record<string, string[]> = {
     'dashboard', 'houses', 'daily-production', 'req-create', 'requisitions'
   ],
   SALES_OFFICER: [
-    'dashboard', 'requisitions', 'products-customers', 'sales'
+    'dashboard', 'products-customers', 'sales'
   ],
   WAREHOUSE_KEEPER: [
-    'dashboard', 'requisitions', 'products-customers', 'warehouse'
+    'dashboard', 'products-customers', 'warehouse'
   ],
   ACCOUNTANT: [
-    'dashboard', 'requisitions', 'sales', 'warehouse', 'reports'
+    'dashboard', 'sales', 'warehouse', 'reports'
   ]
 };
 

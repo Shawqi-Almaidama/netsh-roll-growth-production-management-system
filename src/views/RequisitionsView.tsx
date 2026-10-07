@@ -30,7 +30,8 @@ interface RequisitionsViewProps {
 
 export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab = 'list', onBack }) => {
   const { user, hasRole } = useAuth();
-  const [activeTab, setActiveTab] = useState<'list' | 'create'>(initialTab === 'create' ? 'create' : 'list');
+  const canCreate = hasRole('SUPERVISOR', 'ADMIN');
+  const [activeTab, setActiveTab] = useState<'list' | 'create'>(initialTab === 'create' && canCreate ? 'create' : 'list');
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -44,6 +45,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   // Create Form State
   const [farms, setFarms] = useState<Farm[]>([]);
@@ -177,19 +179,51 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
 
   const handleOpenDetails = async (id: number) => {
     try {
+      setReviewError(null);
       const res = await api.getRequisitionDetails(id);
       if (res.success) {
         setSelectedReq(res.requisition);
         setReviewNotes(res.requisition.review_notes || '');
         setIsDetailsOpen(true);
       }
-    } catch (err) {
-      console.error('Failed to load requisition details:', err);
+    } catch (err: any) {
+      setCreateFeedback({
+        type: 'error',
+        message: err.message || 'تعذر تحميل تفاصيل الطلب'
+      });
+    }
+  };
+
+  const handleSubmitDraft = async () => {
+    if (!selectedReq) return;
+    setReviewing(true);
+    setReviewError(null);
+    try {
+      const res = await api.submitRequisition(selectedReq.id);
+      if (res.success) {
+        setCreateFeedback({
+          type: 'success',
+          message: res.message || `تم إرسال الطلب (${selectedReq.request_no}) للمراجعة بنجاح.`
+        });
+        setIsDetailsOpen(false);
+        await loadData();
+      }
+    } catch (err: any) {
+      setReviewError(err.message || 'فشل إرسال المسودة للمراجعة');
+    } finally {
+      setReviewing(false);
     }
   };
 
   const handleReviewDecision = async (decision: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED') => {
     if (!selectedReq) return;
+    setReviewError(null);
+
+    if (decision === 'REJECTED' && !reviewNotes.trim()) {
+      setReviewError('يرجى كتابة سبب رفض الطلب في حقل ملاحظات المراجعة قبل تأكيد الرفض');
+      return;
+    }
+
     setReviewing(true);
     try {
       const res = await api.reviewRequisition(selectedReq.id, {
@@ -197,11 +231,15 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
         reviewNotes
       });
       if (res.success) {
+        setCreateFeedback({
+          type: 'success',
+          message: res.message || `تم تحديث حالة الطلب (${selectedReq.request_no}) بنجاح.`
+        });
         setIsDetailsOpen(false);
         await loadData();
       }
     } catch (err: any) {
-      alert(err.message || 'فشلت عملية المراجعة');
+      setReviewError(err.message || 'فشلت عملية المراجعة');
     } finally {
       setReviewing(false);
     }
@@ -221,6 +259,15 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
     FEED: { label: 'طلب أعلاف', icon: Wheat },
     TREATMENT: { label: 'طلب علاجات وتحصينات', icon: Pill },
     SUPPLY: { label: 'طلب مستلزمات ومطهرات', icon: Package }
+  };
+
+  const statusCounts = {
+    all: requisitions.length,
+    SUBMITTED: requisitions.filter(r => r.status === 'SUBMITTED').length,
+    UNDER_REVIEW: requisitions.filter(r => r.status === 'UNDER_REVIEW').length,
+    APPROVED: requisitions.filter(r => r.status === 'APPROVED').length,
+    REJECTED: requisitions.filter(r => r.status === 'REJECTED').length,
+    COMPLETED: requisitions.filter(r => r.status === 'COMPLETED').length
   };
 
   const filteredRequisitions = requisitions.filter(r => {
@@ -272,43 +319,84 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            سجل ومتابعة الطلبات
+            سجل ومتابعة الطلبات ({requisitions.length})
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('create')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'create'
-                ? 'bg-emerald-700 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>تقديم طلب جديد</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('create')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeTab === 'create'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>تقديم طلب جديد</span>
+            </button>
+          )}
         </div>
       </div>
 
       {createFeedback && (
         <div
-          className={`p-4 rounded-xl border flex items-center gap-3 text-xs font-semibold ${
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-xs font-semibold ${
             createFeedback.type === 'success'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
               : 'bg-rose-50 border-rose-200 text-rose-800'
           }`}
         >
-          {createFeedback.type === 'success' ? (
-            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          )}
-          <span>{createFeedback.message}</span>
+          <div className="flex items-center gap-2">
+            {createFeedback.type === 'success' ? (
+              <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            )}
+            <span>{createFeedback.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCreateFeedback(null)}
+            className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+          >
+            ×
+          </button>
         </div>
       )}
 
       {/* TAB 1: LIST & REVIEW (UI-08) */}
       {activeTab === 'list' && (
         <div className="space-y-4">
+          {/* Quick Status Filter Tabs with Counters */}
+          <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+            {[
+              { id: 'all', label: 'الكل', count: statusCounts.all },
+              { id: 'SUBMITTED', label: 'مرسل (SUBMITTED)', count: statusCounts.SUBMITTED },
+              { id: 'UNDER_REVIEW', label: 'قيد المراجعة (UNDER_REVIEW)', count: statusCounts.UNDER_REVIEW },
+              { id: 'APPROVED', label: 'معتمد (APPROVED)', count: statusCounts.APPROVED },
+              { id: 'REJECTED', label: 'مرفوض (REJECTED)', count: statusCounts.REJECTED },
+              { id: 'COMPLETED', label: 'مكتمل (COMPLETED)', count: statusCounts.COMPLETED }
+            ].map((st) => (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => setStatusFilter(st.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  statusFilter === st.id
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <span>{st.label}</span>
+                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono ${
+                  statusFilter === st.id ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {st.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
           {/* Filters Bar */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center gap-4">
             <div className="relative flex-1 min-w-[200px]">
@@ -330,10 +418,10 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                 className="text-xs py-2 px-3 border border-slate-300 rounded-lg bg-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="all">جميع الأنواع</option>
-                <option value="CHICKS">كتاكيت (CHICKS)</option>
-                <option value="FEED">أعلاف (FEED)</option>
-                <option value="TREATMENT">علاجات (TREATMENT)</option>
-                <option value="SUPPLY">مستلزمات (SUPPLY)</option>
+                <option value="CHICKS">طلب كتاكيت (CHICKS)</option>
+                <option value="FEED">طلب أعلاف (FEED)</option>
+                <option value="TREATMENT">طلب علاجات (TREATMENT)</option>
+                <option value="SUPPLY">طلب مستلزمات (SUPPLY)</option>
               </select>
             </div>
 
@@ -374,8 +462,8 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                 <tbody className="divide-y divide-slate-100">
                   {filteredRequisitions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
-                        لا توجد طلبات مطابقة لمعايير البحث
+                      <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                        لا توجد طلبات مطابقة للفلتر الحالي.
                       </td>
                     </tr>
                   ) : (
@@ -685,28 +773,57 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
         id="modal-req-details"
         isOpen={isDetailsOpen}
         onClose={() => setIsDetailsOpen(false)}
-        title={`مراجعة طلب الاحتياج: ${selectedReq?.request_no || ''}`}
+        title={`تفاصيل ومراجعة طلب الاحتياج: ${selectedReq?.request_no || ''}`}
         subtitle="تدقيق بيانات الطلب، قائمة البنود، واتخاذ قرار المراجعة والاعتماد"
         maxWidth="2xl"
       >
         {selectedReq && (
           <div className="space-y-5 text-xs">
+            {reviewError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{reviewError}</span>
+              </div>
+            )}
+
             {/* Header Details Card */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <span className="text-slate-400 block text-[11px]">رقم الطلب:</span>
+                <span className="font-mono font-bold text-slate-900">{selectedReq.request_no}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">نوع الطلب:</span>
+                <span className="font-bold text-emerald-800">
+                  {typeArabic[selectedReq.req_type]?.label || selectedReq.req_type}
+                </span>
+              </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">مقدم الطلب:</span>
                 <span className="font-bold text-slate-800">{selectedReq.requester_name}</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[11px]">نوع الطلب:</span>
-                <span className="font-bold text-emerald-800">{selectedReq.req_type}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">تاريخ التقديم:</span>
+                <span className="text-slate-400 block text-[11px]">تاريخ الطلب:</span>
                 <span className="font-mono text-slate-800">{selectedReq.request_date}</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[11px]">الحالة الراهنة:</span>
+                <span className="text-slate-400 block text-[11px]">درجة الاستعجال:</span>
+                <span className="font-bold text-slate-800">
+                  {selectedReq.urgency === 'EMERGENCY' ? 'طوارئ فورية (EMERGENCY)' : selectedReq.urgency === 'HIGH' ? 'عاجل (HIGH)' : 'عادي (NORMAL)'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">المزرعة / الفرع:</span>
+                <span className="font-bold text-slate-800">{selectedReq.farm_name || 'عام / غير محدد'}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">الهنجر / القطيع:</span>
+                <span className="font-bold text-slate-800">
+                  {selectedReq.house_name ? `${selectedReq.house_name}${selectedReq.flock_code ? ` (${selectedReq.flock_code})` : ''}` : selectedReq.flock_code || 'عام / غير محدد'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">الحالة الحالية:</span>
                 <Badge variant={statusArabic[selectedReq.status]?.variant || 'slate'}>
                   {statusArabic[selectedReq.status]?.label || selectedReq.status}
                 </Badge>
@@ -715,13 +832,14 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
 
             {/* Items List */}
             <div>
-              <h4 className="font-bold text-slate-900 mb-2">قائمة البنود المطلوبة:</h4>
+              <h4 className="font-bold text-slate-900 mb-2">جدول بنود الطلب (REQUISITION_ITEMS):</h4>
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <table className="w-full text-right">
                   <thead className="bg-slate-100 text-slate-700 text-[11px]">
                     <tr>
                       <th className="p-2.5 font-bold">#</th>
-                      <th className="p-2.5 font-bold">اسم المادة</th>
+                      <th className="p-2.5 font-bold">اسم الصنف / المادة</th>
+                      <th className="p-2.5 font-bold">النوع</th>
                       <th className="p-2.5 font-bold">الكمية</th>
                       <th className="p-2.5 font-bold">الوحدة</th>
                       <th className="p-2.5 font-bold">المواصفات الفنية</th>
@@ -732,6 +850,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                       <tr key={i} className="hover:bg-slate-50/50">
                         <td className="p-2.5 font-mono text-slate-400">{i + 1}</td>
                         <td className="p-2.5 font-bold text-slate-900">{itm.itemName || itm.item_name}</td>
+                        <td className="p-2.5 font-mono text-[11px] text-slate-600">{itm.itemType || itm.item_type || selectedReq.req_type}</td>
                         <td className="p-2.5 font-mono font-bold text-emerald-800">{itm.quantity}</td>
                         <td className="p-2.5 text-slate-600">{itm.unit}</td>
                         <td className="p-2.5 text-slate-500">{itm.specifications || '-'}</td>
@@ -743,9 +862,44 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
             </div>
 
             {selectedReq.notes && (
-              <div className="p-3 bg-slate-50 rounded-lg text-slate-600">
-                <span className="font-bold block text-slate-700">ملاحظات مقدم الطلب:</span>
+              <div className="p-3 bg-slate-50 rounded-lg text-slate-600 border border-slate-200">
+                <span className="font-bold block text-slate-700 mb-0.5">ملاحظات مقدم الطلب:</span>
                 {selectedReq.notes}
+              </div>
+            )}
+
+            {/* Reviewer Summary Card (if reviewed) */}
+            {(selectedReq.reviewer_name || selectedReq.review_date || selectedReq.review_notes) && (
+              <div className="p-3.5 bg-blue-50/60 rounded-xl border border-blue-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <span className="text-[11px] text-slate-500 block">اسم المراجع:</span>
+                  <span className="font-bold text-slate-900">{selectedReq.reviewer_name || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-500 block">تاريخ المراجعة:</span>
+                  <span className="font-mono font-bold text-slate-900">{selectedReq.review_date || '-'}</span>
+                </div>
+                <div className="sm:col-span-3">
+                  <span className="text-[11px] text-slate-500 block">ملاحظات المراجعة المعتمدة:</span>
+                  <span className="font-semibold text-slate-800">{selectedReq.review_notes || 'لا توجد ملاحظات إضافية'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Draft Submission Action for Supervisor / Creator */}
+            {selectedReq.status === 'DRAFT' && hasRole('SUPERVISOR', 'ADMIN') && (
+              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 flex items-center justify-between">
+                <span className="text-amber-900 font-semibold">
+                  هذا الطلب في حالة مسودة. يمكنك إرساله الآن للمراجعة والاعتماد.
+                </span>
+                <button
+                  type="button"
+                  disabled={reviewing}
+                  onClick={handleSubmitDraft}
+                  className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow-xs transition-colors"
+                >
+                  {reviewing ? 'جاري الإرسال...' : 'إرسال المسودة للمراجعة'}
+                </button>
               </div>
             )}
 
@@ -761,7 +915,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    ملاحظات المراجعة الفنية والتوجيهات *
+                    ملاحظات المراجعة الفنية والتوجيهات (مطلوبة عند الرفض)
                   </label>
                   <textarea
                     rows={2}
@@ -785,7 +939,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                         onClick={() => handleReviewDecision('UNDER_REVIEW')}
                         className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-xs"
                       >
-                        بدء المراجعة الفنية
+                        بدء المراجعة الفنية (UNDER_REVIEW)
                       </button>
                     )}
 
@@ -797,7 +951,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                           onClick={() => handleReviewDecision('APPROVED')}
                           className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow-xs transition-colors"
                         >
-                          اعتماد الطلب
+                          اعتماد الطلب (APPROVED)
                         </button>
                         <button
                           type="button"
@@ -805,7 +959,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                           onClick={() => handleReviewDecision('REJECTED')}
                           className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg transition-colors"
                         >
-                          رفض الطلب
+                          رفض الطلب (REJECTED)
                         </button>
                       </>
                     )}
@@ -817,7 +971,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                         onClick={() => handleReviewDecision('COMPLETED')}
                         className="px-4 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white font-bold rounded-lg shadow-xs transition-colors"
                       >
-                        اكتمال الطلب والتوريد
+                        اكتمال الطلب والتوريد (COMPLETED)
                       </button>
                     )}
 

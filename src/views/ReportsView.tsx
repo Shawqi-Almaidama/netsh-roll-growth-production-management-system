@@ -32,7 +32,7 @@ export const ReportsView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         subtitle: 'Daily Production Report',
         icon: Egg,
         desc: 'متابعة الإنتاج اليومي للبيض واللحوم، ومعدلات النفوق واستهلاك الأعلاف والمياه',
-        roles: ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'ACCOUNTANT']
+        roles: ['ADMIN', 'PROD_MANAGER', 'ACCOUNTANT']
       },
       {
         code: 'R-02' as const,
@@ -40,7 +40,7 @@ export const ReportsView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         subtitle: 'Requisitions Report',
         icon: ClipboardList,
         desc: 'حصر وتتبع كافة طلبات الاحتياج (كتاكيت، أعلاف، علاجات، مستلزمات) وحالات اعتمادها',
-        roles: ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'ACCOUNTANT']
+        roles: ['ADMIN', 'PROD_MANAGER', 'ACCOUNTANT']
       },
       {
         code: 'R-03' as const,
@@ -48,7 +48,7 @@ export const ReportsView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         subtitle: 'Sales Invoices Report',
         icon: DollarSign,
         desc: 'فواتير المبيعات الصادرة، والضرائب والخصومات والإيرادات الإجمالية بالريال اليمني',
-        roles: ['ADMIN', 'SALES_OFFICER', 'ACCOUNTANT']
+        roles: ['ADMIN', 'PROD_MANAGER', 'ACCOUNTANT']
       },
       {
         code: 'R-04' as const,
@@ -56,7 +56,7 @@ export const ReportsView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         subtitle: 'Warehouse Supply Receipts Report',
         icon: Warehouse,
         desc: 'حركات التوريد المستودعي، وأسماء الموردين، والكميات المضافة للأرصدة المخزنية',
-        roles: ['ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER']
+        roles: ['ADMIN', 'PROD_MANAGER', 'ACCOUNTANT']
       },
       {
         code: 'R-05' as const,
@@ -64,7 +64,7 @@ export const ReportsView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         subtitle: 'Products & Inventory Valuation Report',
         icon: Boxes,
         desc: 'بيانات المنتجات، أسعار الوحدات، الأرصدة المتوفرة، وتقييم المخزون والحدود الحرجة',
-        roles: ['ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'SALES_OFFICER', 'PROD_MANAGER']
+        roles: ['ADMIN', 'PROD_MANAGER', 'ACCOUNTANT']
       },
     ];
 

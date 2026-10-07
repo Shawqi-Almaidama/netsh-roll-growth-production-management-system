@@ -147,7 +147,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold transition-colors shadow-xs"
             >
               <ClipboardList className="w-4 h-4" />
-              <span>مراجعة واعتماد الطلبات</span>
+              <span>إدارة الطلبات</span>
             </button>
           )}
 
@@ -868,7 +868,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       {/* ------------------------------------------------------------- */}
       {/* 2. PRODUCTION MANAGER DASHBOARD (أحمد صبر) */}
       {/* ------------------------------------------------------------- */}
-      {(roleCode === 'PROD_MANAGER' || roleCode === 'PROD_MGR') && (
+      {roleCode === 'PROD_MANAGER' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard

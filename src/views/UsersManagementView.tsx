@@ -78,15 +78,23 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
     roleCode: 'SUPERVISOR',
     branchId: 1,
     email: '',
-    phone: ''
+    phone: '',
+    isActive: 1
   });
 
   // User Details Modal State
   const [selectedUserForDetails, setSelectedUserForDetails] = useState<UserRecord | null>(null);
 
+  // Reset Password Modal State
+  const [selectedUserForReset, setSelectedUserForReset] = useState<UserRecord | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+
   // Backup & Restore State
   const [backupInProgress, setBackupInProgress] = useState(false);
   const [restoreInProgress, setRestoreInProgress] = useState<string | null>(null);
+  const [confirmRestoreFilename, setConfirmRestoreFilename] = useState<string | null>(null);
 
   // Auto-dismiss feedback after 4 seconds
   useEffect(() => {
@@ -151,9 +159,7 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
   };
 
   const handleRestoreBackup = async (filename: string) => {
-    if (!window.confirm(`تنبيه: هل أنت متأكد من رغبتك في استعادة النسخة الاحتياطية (${filename})؟\nسيتم استرجاع بيانات النظام إلى توقيت هذه النسخة بأمان.`)) {
-      return;
-    }
+    setConfirmRestoreFilename(null);
     setRestoreInProgress(filename);
     setFeedback(null);
     try {
@@ -189,6 +195,32 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
     }
   };
 
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForReset) return;
+    setResetError(null);
+
+    const trimmed = resetPasswordValue.trim();
+    if (!trimmed || trimmed.length < 8) {
+      setResetError('يجب أن تتكون كلمة المرور الجديدة من 8 خانات على الأقل');
+      return;
+    }
+
+    setResetSubmitting(true);
+    try {
+      const res = await api.resetUserPassword(selectedUserForReset.id, trimmed);
+      if (res.success) {
+        setFeedback({ type: 'success', message: res.message });
+        setSelectedUserForReset(null);
+        setResetPasswordValue('');
+      }
+    } catch (err: any) {
+      setResetError(err.message || 'فشل تحديث كلمة المرور');
+    } finally {
+      setResetSubmitting(false);
+    }
+  };
+
   const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -218,8 +250,8 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
       setFormError('يرجى تعيين كلمة المرور');
       return;
     }
-    if (trimmedPassword.length < 4) {
-      setFormError('يجب أن تتكون كلمة المرور من 4 خانات على الأقل');
+    if (trimmedPassword.length < 8) {
+      setFormError('يجب أن تتكون كلمة المرور من 8 خانات على الأقل');
       return;
     }
     if (!newUser.roleCode) {
@@ -236,7 +268,8 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
         roleCode: newUser.roleCode,
         branchId: Number(newUser.branchId) || 1,
         email: newUser.email.trim() || undefined,
-        phone: newUser.phone.trim() || undefined
+        phone: newUser.phone.trim() || undefined,
+        isActive: Number(newUser.isActive) === 0 ? 0 : 1
       };
 
       const res = await api.createUser(payload);
@@ -253,7 +286,8 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
           roleCode: roles[0]?.role_code || 'SUPERVISOR',
           branchId: 1,
           email: '',
-          phone: ''
+          phone: '',
+          isActive: 1
         });
         await loadData();
       }
@@ -448,7 +482,7 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
                           </span>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <button
                               type="button"
                               onClick={() => setSelectedUserForDetails(u)}
@@ -457,6 +491,19 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
                             >
                               <Eye className="w-3 h-3 text-slate-500" />
                               <span>التفاصيل</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedUserForReset(u);
+                                setResetPasswordValue('');
+                                setResetError(null);
+                              }}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-blue-700 hover:bg-blue-50 border border-blue-200 inline-flex items-center gap-1 transition-colors"
+                              title="إعادة تعيين كلمة المرور"
+                            >
+                              <Lock className="w-3 h-3 text-blue-600" />
+                              <span>كلمة المرور</span>
                             </button>
                             <button
                               type="button"
@@ -557,7 +604,7 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
                           <td className="p-3 text-center">
                             <button
                               type="button"
-                              onClick={() => handleRestoreBackup(b.filename)}
+                              onClick={() => setConfirmRestoreFilename(b.filename)}
                               disabled={restoreInProgress !== null}
                               className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
                             >
@@ -639,12 +686,13 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                كلمة المرور <span className="text-rose-500">*</span>
+                كلمة المرور (8 خانات فأكثر) <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
                   type="password"
                   required
+                  minLength={8}
                   placeholder="••••••••"
                   value={newUser.password}
                   onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
@@ -699,6 +747,22 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
+                حالة الحساب عند الإنشاء
+              </label>
+              <select
+                value={newUser.isActive}
+                onChange={(e) => setNewUser({ ...newUser, isActive: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-bold text-slate-800"
+              >
+                <option value={1}>نشط (مفعل)</option>
+                <option value={0}>غير نشط (معطل)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 رقم الهاتف (اختياري)
               </label>
               <div className="relative">
@@ -713,22 +777,22 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
                 <Phone className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5" />
               </div>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              البريد الإلكتروني (اختياري)
-            </label>
-            <div className="relative">
-              <input
-                type="email"
-                dir="ltr"
-                placeholder="user@example.com"
-                value={newUser.email}
-                onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                className="w-full pr-8 pl-3 py-2 text-xs rounded-xl border border-slate-200 text-left focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              />
-              <Mail className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5" />
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                البريد الإلكتروني (اختياري)
+              </label>
+              <div className="relative">
+                <input
+                  type="email"
+                  dir="ltr"
+                  placeholder="user@example.com"
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  className="w-full pr-8 pl-3 py-2 text-xs rounded-xl border border-slate-200 text-left focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+                <Mail className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5" />
+              </div>
             </div>
           </div>
 
@@ -820,17 +884,32 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
             </div>
 
             <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => handleToggleStatus(selectedUserForDetails)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                  selectedUserForDetails.is_active === 1
-                    ? 'text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200'
-                    : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
-                }`}
-              >
-                {selectedUserForDetails.is_active === 1 ? 'تعطيل الحساب الآن' : 'تفعيل الحساب الآن'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleToggleStatus(selectedUserForDetails)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                    selectedUserForDetails.is_active === 1
+                      ? 'text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200'
+                      : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+                  }`}
+                >
+                  {selectedUserForDetails.is_active === 1 ? 'تعطيل الحساب الآن' : 'تفعيل الحساب الآن'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const u = selectedUserForDetails;
+                    setSelectedUserForDetails(null);
+                    setSelectedUserForReset(u);
+                    setResetPasswordValue('');
+                    setResetError(null);
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
+                >
+                  تعيين كلمة مرور جديدة
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -838,6 +917,107 @@ export const UsersManagementView: React.FC<{ onBack?: () => void }> = ({ onBack 
                 className="px-4 py-1.5 rounded-xl text-xs font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 إغلاق
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL 3: RESET PASSWORD (ADMIN ONLY) */}
+      {selectedUserForReset && (
+        <Modal
+          id="reset-password-modal"
+          isOpen={!!selectedUserForReset}
+          onClose={() => {
+            if (!resetSubmitting) {
+              setSelectedUserForReset(null);
+              setResetError(null);
+              setResetPasswordValue('');
+            }
+          }}
+          title={`تعيين كلمة مرور جديدة: ${selectedUserForReset.full_name}`}
+          subtitle={`تحديث بيانات المصادقة المشفرة (PBKDF2-SHA512) لحساب @${selectedUserForReset.username}`}
+          maxWidth="md"
+        >
+          <form onSubmit={handleResetPasswordSubmit} className="space-y-4 text-xs">
+            {resetError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{resetError}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                كلمة المرور الجديدة (8 خانات على الأقل) <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={resetPasswordValue}
+                  onChange={(e) => setResetPasswordValue(e.target.value)}
+                  placeholder="أدخل كلمة المرور الجديدة..."
+                  className="w-full pr-8 pl-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                />
+                <Lock className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5" />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={resetSubmitting}
+                onClick={() => {
+                  setSelectedUserForReset(null);
+                  setResetError(null);
+                  setResetPasswordValue('');
+                }}
+                className="px-4 py-1.5 rounded-xl font-bold border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                إلغاء
+              </button>
+              <button
+                type="submit"
+                disabled={resetSubmitting}
+                className="px-4 py-1.5 rounded-xl font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs disabled:opacity-50"
+              >
+                {resetSubmitting ? 'جاري التحديث...' : 'حفظ كلمة المرور الجديدة'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* MODAL 4: CONFIRM RESTORE BACKUP */}
+      {confirmRestoreFilename && (
+        <Modal
+          id="confirm-restore-modal"
+          isOpen={!!confirmRestoreFilename}
+          onClose={() => setConfirmRestoreFilename(null)}
+          title="تأكيد استعادة النسخة الاحتياطية"
+          subtitle="سيتم استرجاع بيانات قاعدة البيانات إلى توقيت هذه النسخة بأمان"
+          maxWidth="md"
+        >
+          <div className="space-y-4 text-xs">
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900">
+              هل أنت متأكد من رغبتك في استعادة النسخة الاحتياطية (<span className="font-mono font-bold">{confirmRestoreFilename}</span>)؟
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setConfirmRestoreFilename(null)}
+                className="px-4 py-1.5 rounded-xl font-bold border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRestoreBackup(confirmRestoreFilename)}
+                className="px-4 py-1.5 rounded-xl font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
+              >
+                تأكيد الاستعادة الآن
               </button>
             </div>
           </div>

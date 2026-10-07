@@ -7,7 +7,7 @@ const router = Router();
 // -------------------------------------------------------------
 // FARMS (المزارع)
 // -------------------------------------------------------------
-router.get('/farms', authenticate, (req, res) => {
+router.get('/farms', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const farms = db.prepare(`
     SELECT f.id, f.farm_code, f.farm_name, f.location, f.capacity, f.branch_id, f.status,
            b.branch_name, s.full_name as supervisor_name,
@@ -28,7 +28,12 @@ router.post('/farms', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req,
     return res.status(400).json({ success: false, message: 'كود المزرعة، اسمها، موقعها، وطاقتها الاستيعابية حقول إلزامية' });
   }
 
-  const existing = db.prepare('SELECT id FROM FARMS WHERE farm_code = ?').get(farmCode.trim());
+  const numCapacity = Number(capacity);
+  if (!Number.isFinite(numCapacity) || numCapacity <= 0) {
+    return res.status(400).json({ success: false, message: 'الطاقة الاستيعابية للمزرعة يجب أن تكون رقماً موجباً أكبر من صفر' });
+  }
+
+  const existing = db.prepare('SELECT id FROM FARMS WHERE farm_code = ?').get(String(farmCode).trim());
   if (existing) {
     return res.status(400).json({ success: false, message: 'كود المزرعة مسجل مسبقاً' });
   }
@@ -36,7 +41,7 @@ router.post('/farms', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req,
   const result = db.prepare(`
     INSERT INTO FARMS (farm_code, farm_name, location, capacity, branch_id, supervisor_id)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(farmCode.trim(), farmName.trim(), location.trim(), Number(capacity), branchId || 1, supervisorId || null);
+  `).run(String(farmCode).trim(), String(farmName).trim(), String(location).trim(), numCapacity, branchId || 1, supervisorId || null);
 
   res.status(201).json({ success: true, message: 'تم تسجيل بيانات المزرعة بنجاح', farmId: result.lastInsertRowid });
 });
@@ -44,7 +49,7 @@ router.post('/farms', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req,
 // -------------------------------------------------------------
 // HOUSES (الهناجر) - FR-01, UC-02
 // -------------------------------------------------------------
-router.get('/houses', authenticate, (req, res) => {
+router.get('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const houses = db.prepare(`
     SELECT h.id, h.farm_id, h.house_code, h.house_name, h.house_type, h.capacity, h.current_status, h.notes,
            f.farm_name, f.farm_code,
@@ -72,7 +77,17 @@ router.post('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 
     return res.status(400).json({ success: false, message: 'جميع بيانات الهنجر الأساسية مطلوبة (المزرعة، الكود، الاسم، النوع، الطاقة)' });
   }
 
-  const existing = db.prepare('SELECT id FROM HOUSES WHERE farm_id = ? AND house_code = ?').get(farmId, houseCode.trim());
+  const numCapacity = Number(capacity);
+  if (!Number.isFinite(numCapacity) || numCapacity <= 0) {
+    return res.status(400).json({ success: false, message: 'الطاقة الاستيعابية للهنجر يجب أن تكون رقماً موجباً أكبر من صفر' });
+  }
+
+  const farmExists = db.prepare('SELECT id FROM FARMS WHERE id = ?').get(Number(farmId));
+  if (!farmExists) {
+    return res.status(404).json({ success: false, message: 'المزرعة المحددة غير موجودة' });
+  }
+
+  const existing = db.prepare('SELECT id FROM HOUSES WHERE farm_id = ? AND house_code = ?').get(Number(farmId), String(houseCode).trim());
   if (existing) {
     return res.status(400).json({ success: false, message: 'كود الهنجر مسجل مسبقاً في هذه المزرعة' });
   }
@@ -80,18 +95,30 @@ router.post('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 
   const result = db.prepare(`
     INSERT INTO HOUSES (farm_id, house_code, house_name, house_type, capacity, current_status, supervisor_id, notes)
     VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
-  `).run(farmId, houseCode.trim(), houseName.trim(), houseType.trim(), Number(capacity), supervisorId || null, notes || null);
+  `).run(Number(farmId), String(houseCode).trim(), String(houseName).trim(), String(houseType).trim(), numCapacity, supervisorId || null, notes || null);
 
   res.status(201).json({ success: true, message: 'تم إضافة الهنجر بنجاح', houseId: result.lastInsertRowid });
 });
 
 router.put('/houses/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const houseId = Number(req.params.id);
+  if (!Number.isInteger(houseId) || houseId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف الهنجر غير صالح' });
+  }
+
   const { houseName, houseType, capacity, currentStatus, supervisorId, notes } = req.body;
 
   const current = db.prepare('SELECT id FROM HOUSES WHERE id = ?').get(houseId);
   if (!current) {
     return res.status(404).json({ success: false, message: 'الهنجر غير موجود' });
+  }
+
+  if (capacity !== undefined && (!Number.isFinite(Number(capacity)) || Number(capacity) <= 0)) {
+    return res.status(400).json({ success: false, message: 'الطاقة الاستيعابية يجب أن تكون رقماً موجباً أكبر من صفر' });
+  }
+
+  if (currentStatus && !['ACTIVE', 'CLEANING', 'MAINTENANCE', 'INACTIVE'].includes(currentStatus)) {
+    return res.status(400).json({ success: false, message: 'حالة الهنجر غير صالحة' });
   }
 
   db.prepare(`
@@ -111,7 +138,7 @@ router.put('/houses/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER
 // -------------------------------------------------------------
 // FLOCKS (القطعان) - FR-01, UC-02
 // -------------------------------------------------------------
-router.get('/flocks', authenticate, (req, res) => {
+router.get('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const flocks = db.prepare(`
     SELECT fl.id, fl.house_id, fl.flock_code, fl.breed, fl.initial_count, fl.current_count,
            fl.total_mortality, fl.entry_date, fl.target_weight_g, fl.status, fl.notes,
@@ -132,17 +159,27 @@ router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 
     return res.status(400).json({ success: false, message: 'الهنجر، كود القطيع، السلالة، العدد الابتدائي، وتاريخ التسكين حقول إلزامية' });
   }
 
-  if (Number(initialCount) <= 0) {
-    return res.status(400).json({ success: false, message: 'يجب أن يكون العدد الابتدائي أكبر من صفر' });
+  const numInitialCount = Number(initialCount);
+  if (!Number.isInteger(numInitialCount) || numInitialCount <= 0) {
+    return res.status(400).json({ success: false, message: 'يجب أن يكون العدد الابتدائي عدداً صحيحاً موجباً أكبر من صفر' });
+  }
+
+  const house = db.prepare('SELECT id, capacity FROM HOUSES WHERE id = ?').get(Number(houseId)) as any;
+  if (!house) {
+    return res.status(404).json({ success: false, message: 'الهنجر المحدد غير موجود' });
+  }
+
+  if (numInitialCount > house.capacity) {
+    return res.status(400).json({ success: false, message: `العدد الابتدائي للقطيع (${numInitialCount}) يتجاوز الطاقة الاستيعابية للهنجر (${house.capacity})` });
   }
 
   // Check active flock in house
-  const activeInHouse = db.prepare("SELECT id FROM FLOCKS WHERE house_id = ? AND status = 'ACTIVE'").get(houseId);
+  const activeInHouse = db.prepare("SELECT id FROM FLOCKS WHERE house_id = ? AND status = 'ACTIVE'").get(Number(houseId));
   if (activeInHouse) {
     return res.status(400).json({ success: false, message: 'يوجد قطيع نشط بالفعل في هذا الهنجر، يجب تسوية القطيع الحالي أولاً' });
   }
 
-  const existingCode = db.prepare('SELECT id FROM FLOCKS WHERE flock_code = ?').get(flockCode.trim());
+  const existingCode = db.prepare('SELECT id FROM FLOCKS WHERE flock_code = ?').get(String(flockCode).trim());
   if (existingCode) {
     return res.status(400).json({ success: false, message: 'كود القطيع مسجل مسبقاً' });
   }
@@ -150,16 +187,20 @@ router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 
   const result = db.prepare(`
     INSERT INTO FLOCKS (house_id, flock_code, breed, initial_count, current_count, total_mortality, entry_date, target_weight_g, status, notes)
     VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'ACTIVE', ?)
-  `).run(houseId, flockCode.trim(), breed.trim(), Number(initialCount), Number(initialCount), entryDate, targetWeightG ? Number(targetWeightG) : 2100, notes || null);
+  `).run(Number(houseId), String(flockCode).trim(), String(breed).trim(), numInitialCount, numInitialCount, entryDate, targetWeightG ? Number(targetWeightG) : 2100, notes || null);
 
   // Set house status to ACTIVE
-  db.prepare("UPDATE HOUSES SET current_status = 'ACTIVE' WHERE id = ?").run(houseId);
+  db.prepare("UPDATE HOUSES SET current_status = 'ACTIVE' WHERE id = ?").run(Number(houseId));
 
   res.status(201).json({ success: true, message: 'تم تسكين القطيع الجديد بنجاح', flockId: result.lastInsertRowid });
 });
 
 router.put('/flocks/:id/status', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req, res) => {
   const flockId = Number(req.params.id);
+  if (!Number.isInteger(flockId) || flockId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف القطيع غير صالح' });
+  }
+
   const { status, notes } = req.body;
 
   if (!['ACTIVE', 'HARVESTED', 'TRANSFERRED'].includes(status)) {
@@ -183,7 +224,7 @@ router.put('/flocks/:id/status', authenticate, requireRoles('PROD_MANAGER', 'ADM
 // -------------------------------------------------------------
 // DAILY PRODUCTION (الإنتاج اليومي) - FR-02, UC-03
 // -------------------------------------------------------------
-router.get('/daily', authenticate, (req, res) => {
+router.get('/daily', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { flockId, houseId, startDate, endDate } = req.query;
 
   let query = `
@@ -237,24 +278,43 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
     mortalityCount,
     feedConsumedKg,
     waterConsumedLiters,
+    waterConsumedL,
     avgWeightG,
     temperatureC,
     humidityPct,
     notes
   } = req.body;
 
+  const rawWater = waterConsumedLiters !== undefined ? waterConsumedLiters : waterConsumedL;
+
   if (!flockId || !recordDate) {
     return res.status(400).json({ success: false, message: 'القطيع وتاريخ التسجيل حقلان إلزاميان' });
   }
 
-  const flock = db.prepare('SELECT id, house_id, current_count, total_mortality, flock_code FROM FLOCKS WHERE id = ?').get(flockId) as any;
+  const flock = db.prepare('SELECT id, house_id, current_count, total_mortality, flock_code, status FROM FLOCKS WHERE id = ?').get(Number(flockId)) as any;
   if (!flock) {
     return res.status(404).json({ success: false, message: 'القطيع غير موجود' });
   }
 
-  const mortCount = Math.max(0, Number(mortalityCount) || 0);
-  const prodQty = Math.max(0, Number(productionQuantity) || 0);
-  const feedKg = Math.max(0, Number(feedConsumedKg) || 0);
+  if (flock.status !== 'ACTIVE') {
+    return res.status(400).json({ success: false, message: 'لا يمكن تسجيل إنتاج يومي لقطيع غير نشط' });
+  }
+
+  if (
+    (mortalityCount !== undefined && (!Number.isInteger(Number(mortalityCount)) || Number(mortalityCount) < 0)) ||
+    (productionQuantity !== undefined && (!Number.isFinite(Number(productionQuantity)) || Number(productionQuantity) < 0)) ||
+    (feedConsumedKg !== undefined && (!Number.isFinite(Number(feedConsumedKg)) || Number(feedConsumedKg) < 0)) ||
+    (rawWater !== undefined && rawWater !== null && rawWater !== '' && (!Number.isFinite(Number(rawWater)) || Number(rawWater) < 0)) ||
+    (avgWeightG !== undefined && avgWeightG !== null && avgWeightG !== '' && (!Number.isFinite(Number(avgWeightG)) || Number(avgWeightG) < 0)) ||
+    (humidityPct !== undefined && humidityPct !== null && humidityPct !== '' && (!Number.isFinite(Number(humidityPct)) || Number(humidityPct) < 0 || Number(humidityPct) > 100)) ||
+    (temperatureC !== undefined && temperatureC !== null && temperatureC !== '' && !Number.isFinite(Number(temperatureC)))
+  ) {
+    return res.status(400).json({ success: false, message: 'القيم الرقمية للإنتاج والوفيات والأعلاف والمياه والوزن والرطوبة والحرارة يجب أن تكون أرقاماً صالحة وغير سالبة' });
+  }
+
+  const mortCount = Math.floor(Number(mortalityCount) || 0);
+  const prodQty = Number(productionQuantity) || 0;
+  const feedKg = Number(feedConsumedKg) || 0;
 
   if (mortCount > flock.current_count) {
     return res.status(400).json({
@@ -264,7 +324,7 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
   }
 
   // Check if duplicate entry for flock on same date
-  const existingDay = db.prepare('SELECT id FROM DAILY_PRODUCTION WHERE flock_id = ? AND record_date = ?').get(flockId, recordDate);
+  const existingDay = db.prepare('SELECT id FROM DAILY_PRODUCTION WHERE flock_id = ? AND record_date = ?').get(Number(flockId), String(recordDate));
   if (existingDay) {
     return res.status(400).json({
       success: false,
@@ -285,17 +345,17 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
     `);
 
     const result = insertStmt.run(
-      flockId,
+      Number(flockId),
       flock.house_id,
-      recordDate,
+      String(recordDate),
       prodQty,
       unit || 'طبق',
       mortCount,
       feedKg,
-      waterConsumedLiters ? Number(waterConsumedLiters) : 0,
-      avgWeightG ? Number(avgWeightG) : 0,
-      temperatureC ? Number(temperatureC) : null,
-      humidityPct ? Number(humidityPct) : null,
+      rawWater ? Math.max(0, Number(rawWater)) : 0,
+      avgWeightG ? Math.max(0, Number(avgWeightG)) : 0,
+      temperatureC !== undefined && temperatureC !== null && temperatureC !== '' ? Number(temperatureC) : null,
+      humidityPct !== undefined && humidityPct !== null && humidityPct !== '' ? Number(humidityPct) : null,
       req.user!.id,
       notes || null
     );
@@ -306,7 +366,7 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
       SET current_count = current_count - ?,
           total_mortality = total_mortality + ?
       WHERE id = ?
-    `).run(mortCount, mortCount, flockId);
+    `).run(mortCount, mortCount, Number(flockId));
 
     db.exec('COMMIT;');
 
@@ -327,14 +387,14 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
       recordId: result.lastInsertRowid
     });
   } catch (err: any) {
-    db.exec('ROLLBACK;');
+    try { db.exec('ROLLBACK;'); } catch {}
     console.error('Error recording daily production:', err);
-    res.status(500).json({ success: false, message: 'حدث خطأ أثناء حفظ سجل الإنتاج: ' + err.message });
+    res.status(500).json({ success: false, message: 'حدث خطأ أثناء حفظ سجل الإنتاج اليومي' });
   }
 });
 
 // Supervisors list for select options
-router.get('/supervisors', authenticate, (req, res) => {
+router.get('/supervisors', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const list = db.prepare(`
     SELECT s.id, s.full_name, s.phone, s.specialization, u.username
     FROM SUPERVISORS s

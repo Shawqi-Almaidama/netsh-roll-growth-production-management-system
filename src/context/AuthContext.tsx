@@ -91,10 +91,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return false;
     if (user.roleCode === 'ADMIN') return true; // ADMIN inherits all privileges
     if (roles.includes(user.roleCode)) return true;
-    if ((user.roleCode === 'PROD_MANAGER' || user.roleCode === 'PROD_MGR') &&
-        (roles.includes('PROD_MGR') || roles.includes('PROD_MANAGER'))) {
-      return true;
-    }
     return false;
   };
 

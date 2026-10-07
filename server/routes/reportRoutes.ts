@@ -4,8 +4,8 @@ import { authenticate, requireRoles, AuthenticatedRequest } from '../auth.js';
 
 const router = Router();
 
-// تقرير الإنتاج اليومي
-router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+// تقرير الإنتاج اليومي (R-01)
+router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { startDate, endDate, flockId, houseId } = req.query;
   const user = req.user!;
 
@@ -62,11 +62,11 @@ router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MANAGE
     avgWeightG: rows.length > 0 ? Math.round(rows.reduce((acc, r) => acc + (r.avg_weight_g || 0), 0) / rows.length) : 0
   };
 
-  res.json({ success: true, reportCode: 'R-01', reportName: 'تقرير الإنتاج والتشغيل اليومي', summary, records: rows });
+  res.json({ success: true, reportCode: 'R-01', reportName: 'تقرير الإنتاج والتشغيل اليومي', summary, rows, records: rows });
 });
 
-// تقرير طلبات الاحتياج
-router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+// تقرير طلبات الاحتياج (R-02)
+router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { type, status, startDate, endDate } = req.query;
   const user = req.user!;
 
@@ -86,12 +86,6 @@ router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 
     WHERE 1=1
   `;
   const params: any[] = [];
-
-  // Supervisor only sees requisitions submitted by himself
-  if (user.roleCode === 'SUPERVISOR') {
-    query += ' AND r.requester_id = ?';
-    params.push(user.id);
-  }
 
   if (type) {
     query += ' AND r.req_type = ?';
@@ -123,11 +117,11 @@ router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 
     completedCount: rows.filter(r => r.status === 'COMPLETED').length
   };
 
-  res.json({ success: true, reportCode: 'R-02', reportName: 'تقرير طلبات الاحتياج التشغيلية', summary, records: rows });
+  res.json({ success: true, reportCode: 'R-02', reportName: 'تقرير طلبات الاحتياج التشغيلية', summary, rows, records: rows });
 });
 
-// تقرير فواتير المبيعات
-router.get('/sales', authenticate, requireRoles('ADMIN', 'SALES_OFFICER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+// تقرير فواتير المبيعات (R-03)
+router.get('/sales', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { customerId, status, startDate, endDate } = req.query;
 
   let query = `
@@ -135,6 +129,7 @@ router.get('/sales', authenticate, requireRoles('ADMIN', 'SALES_OFFICER', 'ACCOU
            inv.tax_amount, inv.total_amount, inv.payment_status, inv.notes,
            c.customer_name, c.customer_code, c.phone as customer_phone,
            u.full_name as issuer_name,
+           u.full_name as created_by_name,
            (SELECT COUNT(*) FROM INVOICE_LINES il WHERE il.invoice_id = inv.id) as lines_count
     FROM SALES_INVOICES inv
     JOIN CUSTOMERS c ON inv.customer_id = c.id
@@ -172,11 +167,11 @@ router.get('/sales', authenticate, requireRoles('ADMIN', 'SALES_OFFICER', 'ACCOU
     totalNetAmount: rows.reduce((acc, r) => acc + (r.total_amount || 0), 0)
   };
 
-  res.json({ success: true, reportCode: 'R-03', reportName: 'تقرير فواتير المبيعات والإيرادات', summary, records: rows });
+  res.json({ success: true, reportCode: 'R-03', reportName: 'تقرير فواتير المبيعات والإيرادات', summary, rows, records: rows });
 });
 
-// تقرير التوريد للمخازن
-router.get('/warehouse-receipts', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER'), (req: AuthenticatedRequest, res: Response) => {
+// تقرير التوريد للمخازن (R-04)
+router.get(['/warehouse-receipts', '/warehouse-supply'], authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { warehouseId, productId, startDate, endDate } = req.query;
 
   let query = `
@@ -219,11 +214,11 @@ router.get('/warehouse-receipts', authenticate, requireRoles('ADMIN', 'WAREHOUSE
     totalQuantitySupplied: rows.reduce((acc, r) => acc + (r.quantity || 0), 0)
   };
 
-  res.json({ success: true, reportCode: 'R-04', reportName: 'تقرير حركات التوريد للمستودعات', summary, records: rows });
+  res.json({ success: true, reportCode: 'R-04', reportName: 'تقرير حركات التوريد للمستودعات', summary, rows, records: rows });
 });
 
-// تقرير المنتجات والمخزون
-router.get('/products-inventory', authenticate, requireRoles('ADMIN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'SALES_OFFICER', 'PROD_MANAGER'), (req: AuthenticatedRequest, res: Response) => {
+// تقرير المنتجات والمخزون (R-05)
+router.get(['/products-inventory', '/products'], authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
   const { category, lowStockOnly } = req.query;
 
   let query = `
@@ -254,7 +249,7 @@ router.get('/products-inventory', authenticate, requireRoles('ADMIN', 'WAREHOUSE
     lowStockItemsCount: rows.filter(r => r.is_low_stock === 1).length
   };
 
-  res.json({ success: true, reportCode: 'R-05', reportName: 'تقرير جرد وتقييم مخزون المنتجات', summary, records: rows });
+  res.json({ success: true, reportCode: 'R-05', reportName: 'تقرير جرد وتقييم مخزون المنتجات', summary, rows, records: rows });
 });
 
 export default router;

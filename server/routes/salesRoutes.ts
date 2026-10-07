@@ -4,18 +4,25 @@ import { authenticate, requireRoles, AuthenticatedRequest, createNotification } 
 
 const router = Router();
 
-// Generate distinct Invoice Number: INV-YYYYMMDD-XXXX
+// Generate distinct Invoice Number: INV-YYYYMMDD-XXXX (verified unique in DB)
 function generateInvoiceNo(): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const countRecord = db.prepare(`SELECT COUNT(*) as count FROM SALES_INVOICES WHERE invoice_date LIKE ?`).get(`${new Date().toISOString().slice(0, 7)}%`) as any;
-  const seq = String((countRecord?.count || 0) + 1).padStart(4, '0');
-  return `INV-${dateStr}-${seq}`;
+  const maxRecord = db.prepare('SELECT COALESCE(MAX(id), 0) as maxId FROM SALES_INVOICES').get() as any;
+  let nextNum = (maxRecord?.maxId || 0) + 1;
+  const checkStmt = db.prepare('SELECT 1 FROM SALES_INVOICES WHERE invoice_no = ?');
+  while (true) {
+    const candidate = `INV-${dateStr}-${String(nextNum).padStart(4, '0')}`;
+    if (!checkStmt.get(candidate)) {
+      return candidate;
+    }
+    nextNum++;
+  }
 }
 
 // -------------------------------------------------------------
 // GET /sales/invoices - List Sales Invoices with filters
 // -------------------------------------------------------------
-router.get('/invoices', authenticate, (req, res) => {
+router.get('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT', 'ADMIN'), (req, res) => {
   const { customerId, startDate, endDate, status, search } = req.query;
 
   let query = `
@@ -63,8 +70,11 @@ router.get('/invoices', authenticate, (req, res) => {
 // -------------------------------------------------------------
 // GET /sales/invoices/:id - Invoice Details with Lines
 // -------------------------------------------------------------
-router.get('/invoices/:id', authenticate, (req, res) => {
+router.get('/invoices/:id', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT', 'ADMIN'), (req, res) => {
   const invId = Number(req.params.id);
+  if (!Number.isInteger(invId) || invId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف الفاتورة غير صالح' });
+  }
 
   const invoice = db.prepare(`
     SELECT inv.*,
@@ -90,33 +100,48 @@ router.get('/invoices/:id', authenticate, (req, res) => {
     ORDER BY il.id ASC
   `).all(invId);
 
-  res.json({ success: true, invoice: { ...invoice, lines } });
+  res.json({ success: true, invoice: { ...invoice, status: invoice.payment_status, lines, items: lines } });
 });
 
 // -------------------------------------------------------------
 // POST /sales/invoices - Create Invoice (FR-10, UC-10)
 // Enforces BR-01 (Check Stock), BR-03 (Decrease Stock), BR-05 (Customer Link & INVOICE_LINES)
+// Enforces F-11 (Strict Catalog Unit Price Integrity)
 // Fully Atomic Transaction
 // -------------------------------------------------------------
-router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-  const { customerId, invoiceDate, discount, taxRate, paymentStatus, notes, lines } = req.body;
+router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  const { customerId, invoiceDate, discount, discountAmount, taxRate, paymentStatus, notes, lines, items } = req.body;
+  const rawLines = Array.isArray(lines) ? lines : Array.isArray(items) ? items : null;
+  const rawDiscount = discount !== undefined ? discount : discountAmount;
 
   // Basic validation
-  if (!customerId) {
+  if (!customerId || !Number.isInteger(Number(customerId)) || Number(customerId) <= 0) {
     return res.status(400).json({ success: false, message: 'يرجى تحديد العميل' });
   }
 
-  if (!lines || !Array.isArray(lines) || lines.length === 0) {
+  if (!rawLines || rawLines.length === 0) {
     return res.status(400).json({ success: false, message: 'يجب أن تحتوي الفاتورة على بند واحد على الأقل (BR-05)' });
   }
 
+  if (paymentStatus && !['PAID', 'PENDING', 'PARTIAL'].includes(paymentStatus)) {
+    return res.status(400).json({ success: false, message: 'حالة الدفع غير صالحة (يجب أن تكون PAID أو PENDING أو PARTIAL)' });
+  }
+
+  if (rawDiscount !== undefined && (!Number.isFinite(Number(rawDiscount)) || Number(rawDiscount) < 0)) {
+    return res.status(400).json({ success: false, message: 'قيمة الخصم لا يمكن أن تكون سالبة أو غير صالحة' });
+  }
+
+  if (taxRate !== undefined && (!Number.isFinite(Number(taxRate)) || Number(taxRate) < 0 || Number(taxRate) > 100)) {
+    return res.status(400).json({ success: false, message: 'نسبة الضريبة يجب أن تكون بين 0 و 100' });
+  }
+
   // Validate Customer
-  const customer = db.prepare('SELECT id, customer_name FROM CUSTOMERS WHERE id = ?').get(customerId);
+  const customer = db.prepare('SELECT id, customer_name FROM CUSTOMERS WHERE id = ?').get(Number(customerId));
   if (!customer) {
     return res.status(404).json({ success: false, message: 'العميل المحدد غير موجود في النظام' });
   }
 
-  // BR-01 & Line Calculations: Validate each product and verify sufficient stock
+  // BR-01 & Line Calculations: Validate each product and verify sufficient cumulative stock across all lines
   const validatedLines: Array<{
     productId: number;
     productName: string;
@@ -127,29 +152,45 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAG
     minAlert: number;
   }> = [];
 
+  const cumulativeQtyByProduct = new Map<number, number>();
   let computedSubtotal = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const item = lines[i];
-    const qty = Number(item.quantity);
-    if (!item.productId || isNaN(qty) || qty <= 0) {
+  for (let i = 0; i < rawLines.length; i++) {
+    const item = rawLines[i];
+    const qty = Number(item?.quantity);
+    if (!item || !item.productId || !Number.isFinite(qty) || qty <= 0) {
       return res.status(400).json({ success: false, message: `البند رقم ${i + 1}: يجب تحديد المنتج وكمية صالحة أكبر من صفر` });
     }
 
-    const product = db.prepare('SELECT id, product_name, unit_price, current_stock, min_stock_alert FROM PRODUCTS WHERE id = ?').get(item.productId) as any;
+    const product = db.prepare('SELECT id, product_name, unit_price, current_stock, min_stock_alert FROM PRODUCTS WHERE id = ?').get(Number(item.productId)) as any;
     if (!product) {
       return res.status(404).json({ success: false, message: `المنتج المحدد في البند رقم ${i + 1} غير موجود` });
     }
 
-    // BR-01: Stock Check
-    if (product.current_stock < qty) {
+    // F-11: Prevent price tampering — if client sends unitPrice, it must match the official catalog product.unit_price
+    if (item.unitPrice !== undefined && item.unitPrice !== null) {
+      const submittedPrice = Number(item.unitPrice);
+      if (!Number.isFinite(submittedPrice) || submittedPrice <= 0 || Math.abs(submittedPrice - Number(product.unit_price)) > 0.01) {
+        return res.status(400).json({
+          success: false,
+          message: `البند رقم ${i + 1}: غير مسموح بالتلاعب بسعر الوحدة للمنتج "${product.product_name}". السعر المعتمد في النظام هو (${product.unit_price})`
+        });
+      }
+    }
+
+    const totalRequestedForProduct = (cumulativeQtyByProduct.get(product.id) || 0) + qty;
+    cumulativeQtyByProduct.set(product.id, totalRequestedForProduct);
+
+    // BR-01: Cumulative Stock Check
+    if (product.current_stock < totalRequestedForProduct) {
       return res.status(400).json({
         success: false,
-        message: `المخزون غير كافٍ للمنتج "${product.product_name}". الرصيد الحالي المتوفر بالمستودعات هو (${product.current_stock}) بينما الكمية المطلوبة هي (${qty}). تم إيقاف العملية لمنع العجز (BR-01)`
+        message: `المخزون غير كافٍ للمنتج "${product.product_name}". الرصيد الحالي المتوفر بالمستودعات هو (${product.current_stock}) بينما إجمالي الكمية المطلوبة هي (${totalRequestedForProduct}). تم إيقاف العملية لمنع العجز (BR-01)`
       });
     }
 
-    const price = item.unitPrice !== undefined && Number(item.unitPrice) >= 0 ? Number(item.unitPrice) : Number(product.unit_price);
+    // Strictly enforce canonical catalog price from database
+    const price = Number(product.unit_price);
     const lineTotal = Number((qty * price).toFixed(2));
     computedSubtotal += lineTotal;
 
@@ -165,18 +206,21 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAG
   }
 
   computedSubtotal = Number(computedSubtotal.toFixed(2));
-  const numDiscount = Math.max(0, Number(discount) || 0);
+  const numDiscount = Math.max(0, Number(rawDiscount) || 0);
+  if (numDiscount > computedSubtotal) {
+    return res.status(400).json({ success: false, message: 'قيمة الخصم لا يمكن أن تتجاوز إجمالي قيمة الفاتورة' });
+  }
   const taxable = Math.max(0, computedSubtotal - numDiscount);
   const taxPct = Math.max(0, Number(taxRate) || 0);
   const computedTax = Number(((taxable * taxPct) / 100).toFixed(2));
   const computedTotal = Number((taxable + computedTax).toFixed(2));
 
-  const invoiceNo = generateInvoiceNo();
   const invDate = invoiceDate || new Date().toISOString().slice(0, 10);
 
   // EXECUTE ATOMIC TRANSACTION (BR-03 & Consistency Rule 33)
   try {
     db.exec('BEGIN TRANSACTION;');
+    const invoiceNo = generateInvoiceNo();
 
     // 1. Insert SALES_INVOICES
     const insertInvoiceStmt = db.prepare(`
@@ -188,7 +232,7 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAG
 
     const invResult = insertInvoiceStmt.run(
       invoiceNo,
-      customerId,
+      Number(customerId),
       req.user!.id,
       invDate,
       computedSubtotal,
@@ -218,10 +262,13 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAG
     for (const vLine of validatedLines) {
       insertLineStmt.run(invoiceId, vLine.productId, vLine.quantity, vLine.unitPrice, vLine.lineTotal);
       updateStockStmt.run(vLine.quantity, vLine.productId);
+    }
 
-      const remainingStock = vLine.currentStock - vLine.quantity;
-      if (remainingStock <= vLine.minAlert) {
-        lowStockAlerts.push(`${vLine.productName} (الرصيد المتبقي: ${remainingStock})`);
+    for (const [prodId, totalUsed] of cumulativeQtyByProduct.entries()) {
+      const pInfo = validatedLines.find(l => l.productId === prodId)!;
+      const remainingStock = pInfo.currentStock - totalUsed;
+      if (remainingStock <= pInfo.minAlert) {
+        lowStockAlerts.push(`${pInfo.productName} (الرصيد المتبقي: ${remainingStock})`);
       }
     }
 
@@ -246,9 +293,9 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAG
       totalAmount: computedTotal
     });
   } catch (err: any) {
-    db.exec('ROLLBACK;');
+    try { db.exec('ROLLBACK;'); } catch {}
     console.error('Error creating sales invoice:', err);
-    res.status(500).json({ success: false, message: 'فشلت عملية إنشاء الفاتورة وتحديث المخزون: ' + err.message });
+    res.status(500).json({ success: false, message: 'فشلت عملية إنشاء الفاتورة وتحديث المخزون' });
   }
 });
 

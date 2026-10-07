@@ -12,40 +12,10 @@ export interface TestResult {
 }
 
 export function cleanupTestData() {
-  try {
-    db.exec(`
-      SAVEPOINT sp_test_cleanup;
-      DELETE FROM REQUISITION_ITEMS WHERE requisition_id IN (
-        SELECT id FROM REQUISITIONS WHERE request_no LIKE 'REQ-%TEST-%' OR request_no LIKE 'REQ-REJ-%'
-      );
-      DELETE FROM REQUISITIONS WHERE request_no LIKE 'REQ-%TEST-%' OR request_no LIKE 'REQ-REJ-%';
-      DELETE FROM INVOICE_LINES WHERE invoice_id IN (
-        SELECT id FROM SALES_INVOICES WHERE invoice_no LIKE 'INV-CALC-%'
-      ) OR product_id IN (
-        SELECT id FROM PRODUCTS WHERE product_code LIKE 'PRD-TST-%' OR product_name = 'منتج اختبار'
-      );
-      DELETE FROM SALES_INVOICES WHERE invoice_no LIKE 'INV-CALC-%';
-      DELETE FROM DAILY_PRODUCTION WHERE flock_id IN (
-        SELECT id FROM FLOCKS WHERE flock_code LIKE 'FLK-TST-%'
-      ) OR house_id IN (
-        SELECT id FROM HOUSES WHERE house_code LIKE 'H-TEST-%' OR house_name LIKE 'هنجر اختبار%'
-      );
-      DELETE FROM WAREHOUSE_RECEIPTS WHERE receipt_no LIKE 'RCP-TST-%' OR supplier_name = 'المورد العربي المعتمد';
-      DELETE FROM NOTIFICATIONS WHERE title = 'إشعار اختبار المنظومة';
-      DELETE FROM FLOCKS WHERE flock_code LIKE 'FLK-TST-%';
-      DELETE FROM PRODUCTS WHERE product_code LIKE 'PRD-TST-%' OR product_name = 'منتج اختبار';
-      DELETE FROM CUSTOMERS WHERE customer_code LIKE 'CUST-TST-%' OR customer_name = 'شركة الاختبار الغذائية';
-      DELETE FROM HOUSES WHERE house_code LIKE 'H-TEST-%' OR house_name LIKE 'هنجر اختبار%';
-      UPDATE PRODUCTS SET current_stock = 1050 WHERE id = 1;
-      RELEASE SAVEPOINT sp_test_cleanup;
-    `);
-  } catch (err) {
-    console.error('Test cleanup error:', err);
-  }
+  // No-op: runFullAcademicTestSuite runs inside an atomic SAVEPOINT and rolls back all changes automatically.
 }
 
 export function runFullAcademicTestSuite(): { passedCount: number; failedCount: number; totalCount: number; results: TestResult[] } {
-  cleanupTestData();
   const results: TestResult[] = [];
 
   function test(id: string, name: string, category: string, fn: () => void) {
@@ -71,6 +41,10 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
       });
     }
   }
+
+  // Isolate the entire test suite inside a SAVEPOINT so zero changes persist to the production database
+  db.exec('SAVEPOINT sp_academic_suite_isolation;');
+  try {
 
   // T-01: Login verification
   test('T-01', 'تسجيل الدخول والتحقق من كلمة المرور المشفرة (UC-01)', 'Authentication', () => {
@@ -224,7 +198,7 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
 
   // T-10: Review Request (UNDER_REVIEW)
   test('T-10', 'بدء مراجعة الطلب وتحديث الحالة إلى قيد المراجعة (FR-07, UC-08)', 'Requisitions', () => {
-    const req = db.prepare("SELECT id FROM REQUISITIONS WHERE status = 'SUBMITTED' LIMIT 1").get() as any;
+    const req = db.prepare("SELECT id FROM REQUISITIONS WHERE status = 'SUBMITTED' AND request_no LIKE 'REQ-%TEST-%' ORDER BY id DESC LIMIT 1").get() as any;
     if (!req) throw new Error('Submitted requisition missing');
     const reviewerUser = (db.prepare("SELECT id FROM USERS WHERE username = 'ahmed_saber'").get() as any)?.id || 2;
     db.prepare("UPDATE REQUISITIONS SET status = 'UNDER_REVIEW', reviewer_id = ?, review_date = '2026-09-16' WHERE id = ?").run(reviewerUser, req.id);
@@ -232,7 +206,7 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
 
   // T-11: Approve Request
   test('T-11', 'اعتماد طلب الاحتياج وتوثيق قرار المراجع وتاريخه (FR-07, UC-08)', 'Requisitions', () => {
-    const req = db.prepare("SELECT id FROM REQUISITIONS WHERE status = 'UNDER_REVIEW' LIMIT 1").get() as any;
+    const req = db.prepare("SELECT id FROM REQUISITIONS WHERE status = 'UNDER_REVIEW' AND request_no LIKE 'REQ-%TEST-%' ORDER BY id DESC LIMIT 1").get() as any;
     if (!req) throw new Error('Requisition under review missing');
     db.prepare("UPDATE REQUISITIONS SET status = 'APPROVED', review_notes = 'معتمد بعد التدقيق الفني' WHERE id = ?").run(req.id);
     const updated = db.prepare('SELECT status FROM REQUISITIONS WHERE id = ?').get(req.id) as any;
@@ -451,8 +425,21 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
     }
   });
 
-  // Automated post-run cleanup: leaves zero test rows in the database
-  cleanupTestData();
+  } finally {
+    // Always rollback the entire test suite savepoint so the production database remains 100% untouched
+    try {
+      db.exec('ROLLBACK TO SAVEPOINT sp_academic_suite_isolation;');
+      db.exec('RELEASE SAVEPOINT sp_academic_suite_isolation;');
+      const seqTables = db.prepare('SELECT name FROM sqlite_sequence').all() as { name: string }[];
+      for (const st of seqTables) {
+        if (/^[A-Z_]+$/.test(st.name)) {
+          db.prepare(`UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id), 0) FROM ${st.name}) WHERE name = ?`).run(st.name);
+        }
+      }
+    } catch (err) {
+      console.error('Error rolling back academic test suite savepoint:', err);
+    }
+  }
 
   const passedCount = results.filter(r => r.status === 'PASSED').length;
   const failedCount = results.filter(r => r.status === 'FAILED').length;

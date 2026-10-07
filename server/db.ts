@@ -34,8 +34,12 @@ export function hashPassword(password: string, salt?: string): { hash: string; s
 }
 
 export function verifyPassword(password: string, hash: string, salt: string): boolean {
+  if (!password || !hash || !salt) return false;
   const testHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return testHash === hash;
+  const testBuf = Buffer.from(testHash, 'utf-8');
+  const hashBuf = Buffer.from(hash, 'utf-8');
+  if (testBuf.length !== hashBuf.length) return false;
+  return crypto.timingSafeEqual(testBuf, hashBuf);
 }
 
 // Initialize Academic Relational Schema matching Chapters 3 & 4

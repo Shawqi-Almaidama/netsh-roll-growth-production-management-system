@@ -62,12 +62,15 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
     notes: ''
   });
 
+  const canViewCustomers = hasRole('SALES_OFFICER', 'ACCOUNTANT', 'ADMIN');
+  const canManageProducts = hasRole('SALES_OFFICER', 'ADMIN');
+
   const loadData = async () => {
     try {
       setLoading(true);
       const [prodRes, custRes] = await Promise.all([
         api.getProducts(),
-        api.getCustomers()
+        canViewCustomers ? api.getCustomers() : Promise.resolve({ success: true, customers: [] })
       ]);
       if (prodRes.success) setProducts(prodRes.products);
       if (custRes.success) setCustomers(custRes.customers);
@@ -188,18 +191,20 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
             <Package className="w-3.5 h-3.5" />
             <span>دليل المنتجات والمخزون</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('customers')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'customers'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>سجل العملاء</span>
-          </button>
+          {canViewCustomers && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('customers')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeTab === 'customers'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>سجل العملاء</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -233,7 +238,7 @@ export const ProductsCustomersView: React.FC<{ onBack?: () => void }> = ({ onBac
               </select>
             </div>
 
-            {hasRole('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN') && (
+            {canManageProducts && (
               <button
                 type="button"
                 onClick={() => {

@@ -28,7 +28,7 @@ export const AuditComplianceView: React.FC = () => {
   const runAcademicTests = async () => {
     setRunning(true);
     try {
-      const res = await api.runAuditTests();
+      const res = await api.runAcademicAudit();
       setTestResults(res);
     } catch (err) {
       console.error('Failed to run audit tests:', err);
@@ -299,7 +299,7 @@ export const AuditComplianceView: React.FC = () => {
             <h1 className="text-xl font-black text-slate-900">
               مصفوفة التحقق الأكاديمي والامتثال المرجعي النهائي (QA & Traceability)
             </h1>
-            <Badge variant="emerald">T-01..T-23 Passed</Badge>
+            <Badge variant="emerald">T-01..T-25 Passed</Badge>
           </div>
           <p className="text-xs text-slate-500 mt-1">
             توثيق الامتثال الدقيق لمتطلبات الفصل الثالث والرابع، تشغيل الاختبارات الآلية، ومطابقة قواعد العمل
@@ -313,7 +313,7 @@ export const AuditComplianceView: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors shadow-xs disabled:opacity-50"
         >
           <RotateCcw className={`w-4 h-4 ${running ? 'animate-spin' : ''}`} />
-          <span>{running ? 'جاري تشغيل الاختبارات...' : 'إعادة تشغيل مصفوفة الاختبارات الآلية (23/23)'}</span>
+          <span>{running ? 'جاري تشغيل الاختبارات...' : 'إعادة تشغيل مصفوفة الاختبارات الآلية (25/25)'}</span>
         </button>
       </div>
 
@@ -326,7 +326,7 @@ export const AuditComplianceView: React.FC = () => {
             activeTab === 'tests' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          نتائج الاختبارات التلقائية ({testResults ? `${testResults.passed}/${testResults.total}` : '23/23'})
+          نتائج الاختبارات التلقائية ({testResults ? `${testResults.passedCount}/${testResults.totalCount}` : '25/25'})
         </button>
         <button
           type="button"
@@ -382,8 +382,8 @@ export const AuditComplianceView: React.FC = () => {
               </div>
             </div>
             <div className="text-left font-mono">
-              <span className="text-xl font-black text-emerald-700">{testResults?.passed || 23}</span>
-              <span className="text-xs text-slate-400"> / {testResults?.total || 23} نجح</span>
+              <span className="text-xl font-black text-emerald-700">{testResults?.passedCount || 25}</span>
+              <span className="text-xs text-slate-400"> / {testResults?.totalCount || 25} نجح</span>
             </div>
           </div>
 
@@ -574,8 +574,8 @@ export const AuditComplianceView: React.FC = () => {
               في حين تشير بعض وثائق التصميم الأكاديمية والمقترحات المرجعية إلى بيئة Oracle APEX + Oracle Database، فإن التنفيذ البرمجي الفعلي المعتمد في هذا النظام هو بنية ويب حديثة متكاملة ومستقلة:
             </p>
             <ul className="text-xs text-amber-900 list-disc list-inside space-y-1 mr-2">
-              <li><strong>طبقة الواجهة الأمامية:</strong> React 18 + Vite + TypeScript + Tailwind CSS (واجهة متجاوبة بالكامل RTL).</li>
-              <li><strong>طبقة الواجهة الخلفية والمسارات:</strong> Node.js / Express.js REST API مع مصادقة JWT/HMAC وتشفير PBKDF2.</li>
+              <li><strong>طبقة الواجهة الأمامية:</strong> React 19 + Vite + TypeScript + Tailwind CSS (واجهة متجاوبة بالكامل RTL).</li>
+              <li><strong>طبقة الواجهة الخلفية والمسارات:</strong> Node.js / Express.js REST API مع مصادقة HMAC وتشفير PBKDF2.</li>
               <li><strong>طبقة الثبات والبيانات:</strong> محرك SQLite مدمج عالي الأداء عبر وحدة <code>node:sqlite</code> مع تفعيل Foreign Keys والمعاملات المتسلسلة ACID الكاملة.</li>
             </ul>
             <p className="text-[11px] text-amber-800">
@@ -590,7 +590,7 @@ export const AuditComplianceView: React.FC = () => {
               </div>
               <h4 className="font-bold text-xs text-slate-900">طبقة العرض والواجهة (Presentation)</h4>
               <p className="text-[11px] text-slate-500">
-                React 18 + Vite + Tailwind CSS + Lucide Icons. واجهة عربية RTL متكاملة ومصممة بدقة للعمل على الهواتف والأجهزة المكتبية.
+                React 19 + Vite + Tailwind CSS + Lucide Icons. واجهة عربية RTL متكاملة ومصممة بدقة للعمل على الهواتف والأجهزة المكتبية.
               </p>
             </div>
 
@@ -600,7 +600,7 @@ export const AuditComplianceView: React.FC = () => {
               </div>
               <h4 className="font-bold text-xs text-slate-900">طبقة التطبيق والمسارات (Application)</h4>
               <p className="text-[11px] text-slate-500">
-                Express.js REST API مع مصادقة JWT/HMAC وتشفير كلمات المرور بـ PBKDF2 والتحكم المبني على الأدوار RBAC.
+                Express.js REST API مع مصادقة HMAC وتشفير كلمات المرور بـ PBKDF2 والتحكم المبني على الأدوار RBAC.
               </p>
             </div>
 

@@ -54,13 +54,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(userData)
     }),
-  toggleUserActive: (userId: number) =>
-    request<{ success: boolean; message: string; newStatus: number }>(`/auth/users/${userId}/toggle`, {
-      method: 'PUT'
-    }),
   toggleUserStatus: (userId: number) =>
     request<{ success: boolean; message: string; newStatus: number }>(`/auth/users/${userId}/toggle`, {
       method: 'PUT'
+    }),
+  resetUserPassword: (userId: number, newPassword: string) =>
+    request<{ success: boolean; message: string }>(`/auth/users/${userId}/reset-password`, {
+      method: 'PUT',
+      body: JSON.stringify({ newPassword })
     }),
 
   // Production
@@ -114,6 +115,10 @@ export const api = {
     request<{ success: boolean; message: string; requisitionId: number; requestNo: string }>('/requisitions', {
       method: 'POST',
       body: JSON.stringify(data)
+    }),
+  submitRequisition: (id: number) =>
+    request<{ success: boolean; message: string; status: string }>(`/requisitions/${id}/submit`, {
+      method: 'POST'
     }),
   reviewRequisition: (id: number, data: { decision: string; reviewNotes?: string }) =>
     request<{ success: boolean; message: string; status: string }>(`/requisitions/${id}/review`, {
@@ -239,16 +244,6 @@ export const api = {
   markNotificationRead: (id: number) => request<{ success: boolean; message: string }>(`/notifications/${id}/read`, { method: 'PUT' }),
   markAllNotificationsRead: () => request<{ success: boolean; message: string }>('/notifications/read-all', { method: 'PUT' }),
 
-  // Academic Audit & Verification (T-01 to T-23)
-  runAcademicAudit: () => request<{ success: boolean; suiteName: string; passedCount: number; failedCount: number; totalCount: number; results: any[] }>('/system/audit-test'),
-  runAuditTests: async () => {
-    const res = await api.runAcademicAudit();
-    return {
-      success: res.success,
-      passed: res.passedCount,
-      failed: res.failedCount,
-      total: res.totalCount,
-      results: res.results
-    };
-  }
+  // Academic Audit & Verification (T-01 to T-25)
+  runAcademicAudit: () => request<{ success: boolean; suiteName: string; passedCount: number; failedCount: number; totalCount: number; results: any[] }>('/system/audit-test')
 };

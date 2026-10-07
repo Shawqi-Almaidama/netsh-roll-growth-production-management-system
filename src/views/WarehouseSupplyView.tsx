@@ -53,10 +53,11 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
   const loadData = async () => {
     try {
       setLoading(true);
+      const canFetchRequisitions = hasRole('SUPERVISOR', 'PROD_MANAGER', 'ADMIN');
       const [recRes, prodRes, reqRes, whRes] = await Promise.all([
         api.getWarehouseReceipts(),
         api.getProducts(),
-        api.getRequisitions(),
+        canFetchRequisitions ? api.getRequisitions().catch(() => ({ success: false, requisitions: [] })) : Promise.resolve({ success: false, requisitions: [] }),
         api.getWarehouses()
       ]);
 

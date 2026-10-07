@@ -253,7 +253,8 @@ export function computeAdminDashboardStats(period: string, unreadNotifs: number 
 
 // GET /api/dashboard/admin-stats - Dedicated Admin Dashboard Statistics (ADMIN ONLY - RBAC Enforced)
 router.get('/admin-stats', authenticate, requireRoles('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-  const period = (req.query.period as string) || '30days';
+  const rawPeriod = (req.query.period as string) || '30days';
+  const period = ['today', '7days', '30days', 'all'].includes(rawPeriod) ? rawPeriod : '30days';
   const unreadNotifs = (db.prepare(`
     SELECT COUNT(*) as c
     FROM NOTIFICATIONS
@@ -268,7 +269,8 @@ router.get('/admin-stats', authenticate, requireRoles('ADMIN'), (req: Authentica
 router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
   const roleCode = user.roleCode;
-  const period = (req.query.period as string) || '30days';
+  const rawPeriod = (req.query.period as string) || '30days';
+  const period = ['today', '7days', '30days', 'all'].includes(rawPeriod) ? rawPeriod : '30days';
 
   // Strict RBAC: If a non-admin requests Admin statistics, deny immediately
   if (req.query.role === 'ADMIN' && roleCode !== 'ADMIN') {
@@ -289,7 +291,7 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
     return res.json(computeAdminDashboardStats(period, unreadNotifs));
   }
 
-  if (roleCode === 'PROD_MANAGER' || roleCode === 'PROD_MGR') {
+  if (roleCode === 'PROD_MANAGER') {
     // -------------------------------------------------------------
     // PRODUCTION MANAGER DASHBOARD (أحمد صبر - مدير قسم الإنتاج)
     // Focused on Requisitions Review, Houses, Flocks, Production Trends
@@ -477,16 +479,17 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
   // Focused on Assigned Houses, Flocks, Today's Production, Own Requisitions
   // -------------------------------------------------------------
   const supervisorId = user.id;
+  const supProfileId = (db.prepare('SELECT id FROM SUPERVISORS WHERE user_id = ?').get(user.id) as any)?.id || user.id;
 
   const assignedHousesCount = (db.prepare(`
     SELECT COUNT(*) as c FROM HOUSES
     WHERE supervisor_id = ? OR farm_id IN (SELECT id FROM FARMS WHERE supervisor_id = ?)
-  `).get(supervisorId, supervisorId) as any)?.c || (db.prepare('SELECT COUNT(*) as c FROM HOUSES').get() as any)?.c || 0;
+  `).get(supProfileId, supProfileId) as any)?.c || (db.prepare('SELECT COUNT(*) as c FROM HOUSES').get() as any)?.c || 0;
 
   const assignedActiveHouses = (db.prepare(`
     SELECT COUNT(*) as c FROM HOUSES
     WHERE current_status = 'ACTIVE' AND (supervisor_id = ? OR farm_id IN (SELECT id FROM FARMS WHERE supervisor_id = ?))
-  `).get(supervisorId, supervisorId) as any)?.c || (db.prepare("SELECT COUNT(*) as c FROM HOUSES WHERE current_status = 'ACTIVE'").get() as any)?.c || 0;
+  `).get(supProfileId, supProfileId) as any)?.c || (db.prepare("SELECT COUNT(*) as c FROM HOUSES WHERE current_status = 'ACTIVE'").get() as any)?.c || 0;
 
   const currentBirdsCount = (db.prepare("SELECT COALESCE(SUM(current_count), 0) as s FROM FLOCKS WHERE status = 'ACTIVE'").get() as any)?.s || 0;
 

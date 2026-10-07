@@ -7,7 +7,7 @@ const router = Router();
 // -------------------------------------------------------------
 // PRODUCTS (FR-08, UC-09)
 // -------------------------------------------------------------
-router.get('/products', authenticate, (req, res) => {
+router.get('/products', authenticate, requireRoles('SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { category, search } = req.query;
 
   let query = `
@@ -35,14 +35,22 @@ router.get('/products', authenticate, (req, res) => {
   res.json({ success: true, products });
 });
 
-router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (req, res) => {
   const { productCode, productName, category, unit, unitPrice, initialStock, minStockAlert, description } = req.body;
 
   if (!productCode || !productName || !category || !unit || unitPrice === undefined) {
     return res.status(400).json({ success: false, message: 'كود المنتج، اسمه، فئته، وحدته، وسعر الوحدة حقول إلزامية' });
   }
 
-  const existing = db.prepare('SELECT id FROM PRODUCTS WHERE product_code = ?').get(productCode.trim());
+  const numPrice = Number(unitPrice);
+  const numStock = initialStock !== undefined ? Number(initialStock) : 0;
+  const numAlert = minStockAlert !== undefined ? Number(minStockAlert) : 10;
+
+  if (!Number.isFinite(numPrice) || numPrice < 0 || !Number.isFinite(numStock) || numStock < 0 || !Number.isFinite(numAlert) || numAlert < 0) {
+    return res.status(400).json({ success: false, message: 'سعر الوحدة والرصيد الابتدائي وحد الإنذار يجب أن تكون أرقاماً غير سالبة' });
+  }
+
+  const existing = db.prepare('SELECT id FROM PRODUCTS WHERE product_code = ?').get(String(productCode).trim());
   if (existing) {
     return res.status(400).json({ success: false, message: 'كود المنتج مسجل مسبقاً' });
   }
@@ -51,26 +59,38 @@ router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAG
     INSERT INTO PRODUCTS (product_code, product_name, category, unit, unit_price, current_stock, min_stock_alert, description)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    productCode.trim(),
-    productName.trim(),
-    category.trim(),
-    unit.trim(),
-    Number(unitPrice),
-    Math.max(0, Number(initialStock) || 0),
-    Math.max(0, Number(minStockAlert) || 10),
+    String(productCode).trim(),
+    String(productName).trim(),
+    String(category).trim(),
+    String(unit).trim(),
+    numPrice,
+    numStock,
+    numAlert,
     description || null
   );
 
   res.status(201).json({ success: true, message: 'تم إضافة المنتج بنجاح', productId: result.lastInsertRowid });
 });
 
-router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (req, res) => {
   const productId = Number(req.params.id);
+  if (!Number.isInteger(productId) || productId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف المنتج غير صالح' });
+  }
+
   const { productName, category, unit, unitPrice, minStockAlert, description } = req.body;
 
   const current = db.prepare('SELECT id FROM PRODUCTS WHERE id = ?').get(productId);
   if (!current) {
     return res.status(404).json({ success: false, message: 'المنتج غير موجود' });
+  }
+
+  if (unitPrice !== undefined && (!Number.isFinite(Number(unitPrice)) || Number(unitPrice) < 0)) {
+    return res.status(400).json({ success: false, message: 'سعر الوحدة لا يمكن أن يكون سالباً' });
+  }
+
+  if (minStockAlert !== undefined && (!Number.isFinite(Number(minStockAlert)) || Number(minStockAlert) < 0)) {
+    return res.status(400).json({ success: false, message: 'حد الإنذار لا يمكن أن يكون سالباً' });
   }
 
   db.prepare(`
@@ -98,7 +118,7 @@ router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'PROD_MA
 // -------------------------------------------------------------
 // CUSTOMERS (FR-09, UC-09)
 // -------------------------------------------------------------
-router.get('/customers', authenticate, (req, res) => {
+router.get('/customers', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT', 'ADMIN'), (req, res) => {
   const { search } = req.query;
 
   let query = `
@@ -130,7 +150,11 @@ router.post('/customers', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), 
     return res.status(400).json({ success: false, message: 'كود العميل، الاسم، ورقم الهاتف حقول إلزامية' });
   }
 
-  const existing = db.prepare('SELECT id FROM CUSTOMERS WHERE customer_code = ?').get(customerCode.trim());
+  if (customerType && !['WHOLESALE', 'RETAIL', 'DISTRIBUTOR'].includes(customerType)) {
+    return res.status(400).json({ success: false, message: 'نوع العميل غير صالح' });
+  }
+
+  const existing = db.prepare('SELECT id FROM CUSTOMERS WHERE customer_code = ?').get(String(customerCode).trim());
   if (existing) {
     return res.status(400).json({ success: false, message: 'كود العميل مسجل مسبقاً' });
   }
@@ -139,9 +163,9 @@ router.post('/customers', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), 
     INSERT INTO CUSTOMERS (customer_code, customer_name, phone, address, commercial_reg, tax_number, customer_type, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    customerCode.trim(),
-    customerName.trim(),
-    phone.trim(),
+    String(customerCode).trim(),
+    String(customerName).trim(),
+    String(phone).trim(),
     address || null,
     commercialReg || null,
     taxNumber || null,
@@ -154,11 +178,19 @@ router.post('/customers', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), 
 
 router.put('/customers/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (req, res) => {
   const customerId = Number(req.params.id);
+  if (!Number.isInteger(customerId) || customerId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف العميل غير صالح' });
+  }
+
   const { customerName, phone, address, commercialReg, taxNumber, customerType, notes } = req.body;
 
   const current = db.prepare('SELECT id FROM CUSTOMERS WHERE id = ?').get(customerId);
   if (!current) {
     return res.status(404).json({ success: false, message: 'العميل غير موجود' });
+  }
+
+  if (customerType && !['WHOLESALE', 'RETAIL', 'DISTRIBUTOR'].includes(customerType)) {
+    return res.status(400).json({ success: false, message: 'نوع العميل غير صالح' });
   }
 
   db.prepare(`
@@ -179,17 +211,17 @@ router.put('/customers/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'
 // -------------------------------------------------------------
 // OPERATIONAL CATALOGS (FEED, TREATMENT, SUPPLY ITEMS)
 // -------------------------------------------------------------
-router.get('/feed-items', authenticate, (req, res) => {
+router.get('/feed-items', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'WAREHOUSE_KEEPER', 'ADMIN'), (req, res) => {
   const items = db.prepare('SELECT * FROM FEED_ITEMS ORDER BY item_name').all();
   res.json({ success: true, items });
 });
 
-router.get('/treatment-items', authenticate, (req, res) => {
+router.get('/treatment-items', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'WAREHOUSE_KEEPER', 'ADMIN'), (req, res) => {
   const items = db.prepare('SELECT * FROM TREATMENT_ITEMS ORDER BY item_name').all();
   res.json({ success: true, items });
 });
 
-router.get('/supply-items', authenticate, (req, res) => {
+router.get('/supply-items', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'WAREHOUSE_KEEPER', 'ADMIN'), (req, res) => {
   const items = db.prepare('SELECT * FROM SUPPLY_ITEMS ORDER BY item_name').all();
   res.json({ success: true, items });
 });

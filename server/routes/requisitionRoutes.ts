@@ -22,7 +22,7 @@ export function isValidRequisitionTransition(currentStatus: string, nextStatus: 
   return allowed.includes(nextStatus);
 }
 
-// Generate distinct Request Number: REQ-YYYYMMDD-XXXX
+// Generate distinct Request Number: REQ-PREFIX-YYYYMMDD-XXXX (verified unique in DB)
 function generateRequestNo(type: string): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const prefixMap: Record<string, string> = {
@@ -32,15 +32,22 @@ function generateRequestNo(type: string): string {
     SUPPLY: 'SUP'
   };
   const prefix = prefixMap[type] || 'REQ';
-  const countRecord = db.prepare(`SELECT COUNT(*) as count FROM REQUISITIONS WHERE request_date LIKE ?`).get(`${new Date().toISOString().slice(0, 7)}%`) as any;
-  const seq = String((countRecord?.count || 0) + 1).padStart(4, '0');
-  return `REQ-${prefix}-${dateStr}-${seq}`;
+  const maxRecord = db.prepare('SELECT COALESCE(MAX(id), 0) as maxId FROM REQUISITIONS').get() as any;
+  let nextNum = (maxRecord?.maxId || 0) + 1;
+  const checkStmt = db.prepare('SELECT 1 FROM REQUISITIONS WHERE request_no = ?');
+  while (true) {
+    const candidate = `REQ-${prefix}-${dateStr}-${String(nextNum).padStart(4, '0')}`;
+    if (!checkStmt.get(candidate)) {
+      return candidate;
+    }
+    nextNum++;
+  }
 }
 
 // -------------------------------------------------------------
 // GET /requisitions - List with search and filtering
 // -------------------------------------------------------------
-router.get('/', authenticate, (req: AuthenticatedRequest, res: Response) => {
+router.get('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const { type, status, requesterId, farmId, startDate, endDate, search } = req.query;
 
   let query = `
@@ -62,7 +69,15 @@ router.get('/', authenticate, (req: AuthenticatedRequest, res: Response) => {
   `;
   const params: any[] = [];
 
-  // If user is SUPERVISOR, by default show all or restrict if needed (we allow supervisor to view all or own)
+  // Object-level scope: SUPERVISOR only sees their own requisitions (VIEW_OWN_REQUISITIONS)
+  if (req.user!.roleCode === 'SUPERVISOR') {
+    query += ' AND r.requester_id = ?';
+    params.push(req.user!.id);
+  } else if (requesterId) {
+    query += ' AND r.requester_id = ?';
+    params.push(Number(requesterId));
+  }
+
   if (type) {
     query += ' AND r.req_type = ?';
     params.push(String(type));
@@ -70,10 +85,6 @@ router.get('/', authenticate, (req: AuthenticatedRequest, res: Response) => {
   if (status) {
     query += ' AND r.status = ?';
     params.push(String(status));
-  }
-  if (requesterId) {
-    query += ' AND r.requester_id = ?';
-    params.push(Number(requesterId));
   }
   if (farmId) {
     query += ' AND r.farm_id = ?';
@@ -102,8 +113,11 @@ router.get('/', authenticate, (req: AuthenticatedRequest, res: Response) => {
 // -------------------------------------------------------------
 // GET /requisitions/:id - Get Details + Items (REQUISITION -> REQUISITION_ITEMS)
 // -------------------------------------------------------------
-router.get('/:id', authenticate, (req, res) => {
+router.get('/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const reqId = Number(req.params.id);
+  if (!Number.isInteger(reqId) || reqId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف طلب الاحتياج غير صالح' });
+  }
 
   const requisition = db.prepare(`
     SELECT r.*,
@@ -123,6 +137,11 @@ router.get('/:id', authenticate, (req, res) => {
 
   if (!requisition) {
     return res.status(404).json({ success: false, message: 'طلب الاحتياج غير موجود' });
+  }
+
+  // Object-level authorization for SUPERVISOR (BOLA / IDOR protection)
+  if (req.user!.roleCode === 'SUPERVISOR' && requisition.requester_id !== req.user!.id) {
+    return res.status(403).json({ success: false, message: 'غير مصرح لك بالاطلاع على طلب احتياج خاص بمستخدم آخر' });
   }
 
   const items = db.prepare(`
@@ -164,9 +183,25 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN
   // Validate items
   for (let i = 0; i < items.length; i++) {
     const itm = items[i];
-    if (!itm.itemName || !itm.quantity || Number(itm.quantity) <= 0) {
+    const qty = Number(itm?.quantity);
+    if (!itm || typeof itm.itemName !== 'string' || !itm.itemName.trim() || !Number.isFinite(qty) || qty <= 0) {
       return res.status(400).json({ success: false, message: `البند رقم ${i + 1} غير مكتمل: الاسم والكمية الموجبة مطلوبان` });
     }
+  }
+
+  if (farmId !== undefined && farmId !== null && farmId !== '') {
+    const f = db.prepare('SELECT id FROM FARMS WHERE id = ?').get(Number(farmId));
+    if (!f) return res.status(400).json({ success: false, message: 'المزرعة المحددة غير موجودة' });
+  }
+
+  if (houseId !== undefined && houseId !== null && houseId !== '') {
+    const h = db.prepare('SELECT id FROM HOUSES WHERE id = ?').get(Number(houseId));
+    if (!h) return res.status(400).json({ success: false, message: 'الهنجر المحدد غير موجود' });
+  }
+
+  if (flockId !== undefined && flockId !== null && flockId !== '') {
+    const fl = db.prepare('SELECT id FROM FLOCKS WHERE id = ?').get(Number(flockId));
+    if (!fl) return res.status(400).json({ success: false, message: 'القطيع المحدد غير موجود' });
   }
 
   if (status && status !== 'DRAFT' && status !== 'SUBMITTED') {
@@ -176,12 +211,16 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN
     });
   }
 
+  if (urgency && !['LOW', 'NORMAL', 'HIGH', 'CRITICAL', 'EMERGENCY'].includes(urgency)) {
+    return res.status(400).json({ success: false, message: 'درجة الأهمية غير صالحة' });
+  }
+
   const initialStatus = status === 'DRAFT' ? 'DRAFT' : 'SUBMITTED';
-  const requestNo = generateRequestNo(reqType);
   const finalDate = requestDate || new Date().toISOString().slice(0, 10);
 
   try {
     db.exec('BEGIN TRANSACTION;');
+    const requestNo = generateRequestNo(reqType);
 
     const result = db.prepare(`
       INSERT INTO REQUISITIONS (
@@ -214,7 +253,7 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN
         requisitionId,
         itm.itemType || reqType,
         itm.itemRefId || null,
-        itm.itemName.trim(),
+        String(itm.itemName).trim(),
         Number(itm.quantity),
         itm.unit || 'وحدة',
         itm.specifications || null
@@ -247,9 +286,9 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN
       requestNo
     });
   } catch (err: any) {
-    db.exec('ROLLBACK;');
+    try { db.exec('ROLLBACK;'); } catch {}
     console.error('Error creating requisition:', err);
-    res.status(500).json({ success: false, message: 'حدث خطأ أثناء حفظ الطلب: ' + err.message });
+    res.status(500).json({ success: false, message: 'حدث خطأ أثناء حفظ طلب الاحتياج' });
   }
 });
 

@@ -457,8 +457,9 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
                         type="number"
                         step="0.01"
                         value={itm.unitPrice}
-                        onChange={(e) => handlePriceChange(idx, Number(e.target.value))}
-                        className="w-full p-2 border border-slate-300 rounded-lg bg-slate-50 font-mono font-medium"
+                        readOnly
+                        title="سعر الوحدة المعتمد من دليل المنتجات"
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-slate-100 text-slate-700 font-mono font-medium cursor-not-allowed"
                       />
                     </div>
 

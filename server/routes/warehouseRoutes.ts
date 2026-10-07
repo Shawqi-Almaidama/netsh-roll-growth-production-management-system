@@ -4,18 +4,25 @@ import { authenticate, requireRoles, AuthenticatedRequest, createNotification } 
 
 const router = Router();
 
-// Generate distinct Receipt Number: RCP-YYYYMMDD-XXXX
+// Generate distinct Receipt Number: RCP-YYYYMMDD-XXXX (verified unique in DB)
 function generateReceiptNo(): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const countRecord = db.prepare(`SELECT COUNT(*) as count FROM WAREHOUSE_RECEIPTS WHERE receipt_date LIKE ?`).get(`${new Date().toISOString().slice(0, 7)}%`) as any;
-  const seq = String((countRecord?.count || 0) + 1).padStart(4, '0');
-  return `RCP-${dateStr}-${seq}`;
+  const maxRecord = db.prepare('SELECT COALESCE(MAX(id), 0) as maxId FROM WAREHOUSE_RECEIPTS').get() as any;
+  let nextNum = (maxRecord?.maxId || 0) + 1;
+  const checkStmt = db.prepare('SELECT 1 FROM WAREHOUSE_RECEIPTS WHERE receipt_no = ? OR receipt_no LIKE ?');
+  while (true) {
+    const candidate = `RCP-${dateStr}-${String(nextNum).padStart(4, '0')}`;
+    if (!checkStmt.get(candidate, `${candidate}-%`)) {
+      return candidate;
+    }
+    nextNum++;
+  }
 }
 
 // -------------------------------------------------------------
 // GET /warehouses - List Warehouses
 // -------------------------------------------------------------
-router.get('/list', authenticate, (req, res) => {
+router.get('/list', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const warehouses = db.prepare(`
     SELECT w.id, w.warehouse_code, w.warehouse_name, w.location, w.capacity, w.keeper_name,
            b.branch_name,
@@ -30,7 +37,7 @@ router.get('/list', authenticate, (req, res) => {
 // -------------------------------------------------------------
 // GET /warehouses/receipts - List Receipts with filters
 // -------------------------------------------------------------
-router.get('/receipts', authenticate, (req, res) => {
+router.get('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { warehouseId, productId, startDate, endDate, search } = req.query;
 
   let query = `
@@ -79,7 +86,12 @@ router.get('/receipts', authenticate, (req, res) => {
 });
 
 // GET /warehouses/receipts/:id - Get Receipt Details
-router.get('/receipts/:id', authenticate, (req: AuthenticatedRequest, res: Response) => {
+router.get('/receipts/:id', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  const receiptId = Number(req.params.id);
+  if (!Number.isInteger(receiptId) || receiptId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف سند الاستلام غير صالح' });
+  }
+
   const receipt = db.prepare(`
     SELECT wr.*, w.warehouse_name, w.warehouse_code, p.product_name, p.unit, p.product_code,
            u.full_name as receiver_name,
@@ -90,7 +102,7 @@ router.get('/receipts/:id', authenticate, (req: AuthenticatedRequest, res: Respo
     JOIN PRODUCTS p ON wr.product_id = p.id
     JOIN USERS u ON wr.received_by = u.id
     WHERE wr.id = ?
-  `).get(req.params.id) as any;
+  `).get(receiptId) as any;
 
   if (!receipt) {
     return res.status(404).json({ success: false, message: 'سند الاستلام غير موجود' });
@@ -114,7 +126,7 @@ router.get('/receipts/:id', authenticate, (req: AuthenticatedRequest, res: Respo
 // POST /warehouses/receipts - Create Warehouse Receipt (FR-11, UC-11)
 // Enforces BR-04: Supply records warehouse receipt and increments stock atomically
 // -------------------------------------------------------------
-router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const { warehouseId, productId, quantity, supplierName, receiptDate, supplyDate, batchNumber, notes, items } = req.body;
 
   const finalSupplier = (supplierName || '').trim();
@@ -144,7 +156,7 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MA
     for (const it of items) {
       const pid = Number(it.productId || it.product_id);
       const qty = Number(it.quantityReceived || it.quantity);
-      if (!pid || isNaN(qty) || qty <= 0) {
+      if (!pid || !Number.isFinite(qty) || qty <= 0) {
         return res.status(400).json({ success: false, message: 'يجب تحديد الصنف وكمية استلام موجبة أكبر من صفر لجميع البنود' });
       }
       itemsToProcess.push({
@@ -155,7 +167,7 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MA
     }
   } else if (productId && quantity) {
     const qty = Number(quantity);
-    if (isNaN(qty) || qty <= 0) {
+    if (!Number.isFinite(qty) || qty <= 0) {
       return res.status(400).json({ success: false, message: 'يجب أن تكون كمية التوريد رقماً موجباً أكبر من صفر' });
     }
     itemsToProcess.push({
@@ -167,14 +179,22 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MA
     return res.status(400).json({ success: false, message: 'يرجى تحديد الأصناف والكميات المطلوب توريدها للمستودع' });
   }
 
+  // Validate all products exist before opening transaction
+  for (const it of itemsToProcess) {
+    const product = db.prepare('SELECT id FROM PRODUCTS WHERE id = ?').get(it.productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: `المنتج رقم ${it.productId} غير موجود في النظام` });
+    }
+  }
+
   const recDate = receiptDate || supplyDate || new Date().toISOString().slice(0, 10);
-  const baseReceiptNo = generateReceiptNo();
   let firstReceiptId: number | bigint = 0;
   let totalQty = 0;
 
   // ATOMIC TRANSACTION (BR-04)
   try {
     db.exec('BEGIN TRANSACTION;');
+    const baseReceiptNo = generateReceiptNo();
 
     const insertReceipt = db.prepare(`
       INSERT INTO WAREHOUSE_RECEIPTS (
@@ -191,10 +211,6 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MA
 
     itemsToProcess.forEach((it, idx) => {
       const rNo = itemsToProcess.length > 1 ? `${baseReceiptNo}-${idx + 1}` : baseReceiptNo;
-      const product = db.prepare('SELECT id, product_name, current_stock FROM PRODUCTS WHERE id = ?').get(it.productId) as any;
-      if (!product) {
-        throw new Error(`المنتج رقم ${it.productId} غير موجود`);
-      }
 
       const resInsert = insertReceipt.run(
         rNo,
@@ -235,9 +251,9 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'PROD_MA
       totalItems: itemsToProcess.length
     });
   } catch (err: any) {
-    db.exec('ROLLBACK;');
+    try { db.exec('ROLLBACK;'); } catch {}
     console.error('Error recording warehouse receipt:', err);
-    res.status(500).json({ success: false, message: 'فشلت عملية التوريد وتحديث المخزون: ' + err.message });
+    res.status(500).json({ success: false, message: 'فشلت عملية التوريد وتحديث المخزون' });
   }
 });
 

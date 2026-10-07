@@ -21,7 +21,7 @@ router.get('/audit-test', authenticate, requireRoles('ADMIN'), (req: Authenticat
   const testSummary = runFullAcademicTestSuite();
   res.json({
     success: true,
-    suiteName: 'Natural Growth Academic Requirements & Rules Verification Suite (T-01 to T-23)',
+    suiteName: 'Natural Growth Academic Requirements & Rules Verification Suite (T-01 to T-25)',
     ...testSummary
   });
 });
@@ -61,7 +61,7 @@ router.post('/backup', authenticate, requireRoles('ADMIN'), (req: AuthenticatedR
     });
   } catch (err: any) {
     console.error('Backup creation error:', err);
-    res.status(500).json({ success: false, message: 'فشل إنشاء النسخة الاحتياطية: ' + err.message });
+    res.status(500).json({ success: false, message: 'فشل إنشاء النسخة الاحتياطية لقاعدة البيانات' });
   }
 });
 
@@ -135,6 +135,11 @@ router.post('/restore', authenticate, requireRoles('ADMIN'), (req: Authenticated
     db.exec('PRAGMA foreign_keys = OFF;');
     db.exec(`ATTACH DATABASE '${backupFilePath}' AS backup_source;`);
 
+    const mainTables = new Set(
+      (db.prepare("SELECT name FROM main.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[])
+        .map(t => t.name)
+    );
+
     const tables = db.prepare(`
       SELECT name FROM backup_source.sqlite_master
       WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
@@ -142,8 +147,10 @@ router.post('/restore', authenticate, requireRoles('ADMIN'), (req: Authenticated
 
     db.exec('BEGIN TRANSACTION;');
     for (const { name } of tables) {
-      db.exec(`DELETE FROM main.${name};`);
-      db.exec(`INSERT INTO main.${name} SELECT * FROM backup_source.${name};`);
+      if (/^[A-Z_]+$/.test(name) && mainTables.has(name)) {
+        db.exec(`DELETE FROM main.${name};`);
+        db.exec(`INSERT INTO main.${name} SELECT * FROM backup_source.${name};`);
+      }
     }
     db.exec('COMMIT;');
 
@@ -161,7 +168,7 @@ router.post('/restore', authenticate, requireRoles('ADMIN'), (req: Authenticated
       db.exec('DETACH DATABASE backup_source;');
       db.exec('PRAGMA foreign_keys = ON;');
     } catch {}
-    res.status(500).json({ success: false, message: 'فشل استعادة النسخة الاحتياطية: ' + err.message });
+    res.status(500).json({ success: false, message: 'فشل استعادة النسخة الاحتياطية لقاعدة البيانات' });
   }
 });
 

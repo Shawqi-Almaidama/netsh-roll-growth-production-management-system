@@ -1,6 +1,5 @@
 export type RoleCode =
   | 'SUPERVISOR'
-  | 'PROD_MGR'
   | 'PROD_MANAGER'
   | 'SALES_OFFICER'
   | 'WAREHOUSE_KEEPER'
@@ -121,14 +120,19 @@ export interface Requisition {
   requester_id: number;
   requester_name: string;
   requester_role?: string;
+  requester_email?: string;
+  requester_phone?: string;
   farm_id?: number;
   farm_name?: string;
+  farm_code?: string;
   house_id?: number;
   house_name?: string;
+  house_code?: string;
   flock_id?: number;
   flock_code?: string;
+  flock_breed?: string;
   request_date: string;
-  urgency: 'NORMAL' | 'HIGH' | 'EMERGENCY';
+  urgency: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL' | 'EMERGENCY';
   status: RequisitionStatus;
   reviewer_id?: number;
   reviewer_name?: string;

@@ -53,9 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       title: 'طلبات الاحتياج',
       items: [
-        { id: 'req-create', label: 'تقديم طلب جديد', icon: PackagePlus, visible: isSupervisor || isAdmin },
-        { id: 'requisitions', label: 'متابعة الطلبات', icon: ClipboardList, visible: true },
-        { id: 'req-review', label: 'مراجعة واعتماد الطلبات', icon: CheckSquare, visible: isProdMgr || isAdmin }
+        { id: 'requisitions', label: 'إدارة الطلبات', icon: ClipboardList, visible: isSupervisor || isProdMgr || isAdmin }
       ]
     },
     {
