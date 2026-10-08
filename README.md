@@ -283,43 +283,38 @@ Tests
 
 🛠️ التقنيات
 
-«يتم تحديث هذا القسم بعد تثبيت النسخة النهائية للتنفيذ.»
+التقنيات الفعلية المستخدمة في النسخة المعتمدة للمشروع:
 
-التقنيات المستخدمة في النسخة الحالية قد تشمل:
-
-- Frontend: React
-- Backend: Node.js / Express
-- Database: وفق بيئة التنفيذ الحالية
-- Authentication & Authorization: Role-Based Access Control
-- API: RESTful API
+- Frontend: React 19 + TypeScript + Vite + Tailwind CSS
+- Backend: Node.js + Express (TypeScript / `tsx`)
+- Database: SQLite (`node:sqlite` مع تفعيل المفاتيح الأجنبية `FOREIGN KEYS` والمعاملات الذرية `ACID`)
+- Authentication & Authorization: مصادقة باستخدام Bearer Tokens موقعة بواسطة HMAC-SHA256 وتشفير كلمات المرور (`PBKDF2-SHA512`) مع التحكم بالوصول المبني على الأدوار (`RBAC`)
+- API: RESTful API (`/api/*`)
 - UI: Responsive Arabic RTL Interface
-
-ملاحظة: يجب أن يعكس هذا القسم التقنيات الفعلية للنسخة التي يتم رفعها إلى المستودع، ولا ينبغي إدراج تقنية لم يتم استخدامها فعليًا.
 
 ---
 
 📂 الهيكل العام للمشروع
 
-project/
-│
-├── client/
-│   ├── components/
-│   ├── views/
-│   ├── services/
-│   └── ...
-│
+```text
+├── src/
+│   ├── components/       # المكونات المشتركة والرسوم البيانية والتخطيط (Navbar, Sidebar, Modal, ...)
+│   ├── context/          # إدارة جلسة المصادقة والصلاحيات (AuthContext)
+│   ├── utils/            # أدوات تنسيق العملة والبيانات
+│   ├── views/            # واجهات النظام التشغيلية والإدارية
+│   ├── api.ts            # عميل الاتصال بالواجهة الخلفية (REST API Client)
+│   ├── types.ts          # تعريفات الأنواع والكيانات (TypeScript Interfaces)
+│   └── App.tsx           # المكون الرئيسي والتوجيه حسب الصلاحيات
 ├── server/
-│   ├── routes/
-│   ├── auth/
-│   ├── database/
-│   ├── services/
-│   └── ...
-│
-├── README.md
-├── package.json
-└── ...
-
-«قد يختلف الهيكل الفعلي حسب النسخة النهائية للمشروع.»
+│   ├── routes/           # مسارات الـ API المحمية (الإنتاج، الطلبات، المبيعات، المخازن، التقارير، النظام)
+│   ├── auth.ts           # المصادقة، التوقيع، التحقق من الأدوار، والإشعارات
+│   ├── db.ts             # اتصال قاعدة البيانات SQLite والجداول الـ 21 المعتمدة
+│   └── testRunner.ts     # مصفوفة الاختبارات الآلية (T-01 إلى T-25)
+├── data/                 # ملف قاعدة البيانات SQLite والنسخ الاحتياطية
+├── server.ts             # نقطة تشغيل الخادم الرئيسي وربط الواجهة بالـ API
+├── package.json          # الاعتماديات وأوامر التشغيل والفحص
+└── README.md             # توثيق المشروع
+```
 
 ---
 
@@ -327,19 +322,43 @@ project/
 
 بعد استنساخ المستودع:
 
+```bash
 git clone <repository-url>
+```
 
 ثم الانتقال إلى مجلد المشروع:
 
+```bash
 cd netsh-roll-growth-production-management-system
+```
 
 وتثبيت الاعتماديات:
 
+```bash
 npm install
+```
 
-ثم تشغيل المشروع باستخدام أوامر التشغيل المحددة في "package.json".
+أوامر التشغيل والفحص المعتمدة في `package.json`:
 
-«يجب تحديث أوامر التشغيل النهائية هنا بعد التأكد من بنية النسخة التي سيتم رفعها.»
+- تشغيل بيئة التطوير (الخادم والواجهة على المنفذ `3000`):
+```bash
+npm run dev
+```
+
+- فحص الأنواع والكود البرمجي (TypeScript Check):
+```bash
+npm run lint
+```
+
+- بناء نسخة الإنتاج النهائية:
+```bash
+npm run build
+```
+
+- تشغيل الخادم في وضع الإنتاج:
+```bash
+npm start
+```
 
 ---
 
@@ -383,9 +402,9 @@ Testing
 
 📌 حالة المشروع
 
-Development Status: In Progress
+Development Status: Final Release — Verified & Ready for Submission
 
-المشروع حاليًا في مرحلة التطوير والتحقق والمراجعة، ويتم اختبار الوظائف والصلاحيات والواجهات قبل اعتماد النسخة النهائية.
+تم استكمال بناء النظام والتحقق الفعلي الشامل من الوظائف التشغيلية، مصفوفة الصلاحيات (RBAC)، آلة الحالة للطلبات (State Machine)، سلامة المعاملات المخزنية والمالية، واجتياز جميع الاختبارات الآلية (25/25).
 
 ---
 

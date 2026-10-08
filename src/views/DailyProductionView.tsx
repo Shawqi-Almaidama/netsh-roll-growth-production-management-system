@@ -19,6 +19,7 @@ import { Badge } from '../components/ui/Badge.js';
 
 export const DailyProductionView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const { user, hasRole } = useAuth();
+  const canCreate = hasRole('SUPERVISOR', 'ADMIN');
   const [records, setRecords] = useState<DailyProductionRecord[]>([]);
   const [flocks, setFlocks] = useState<Flock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +80,7 @@ export const DailyProductionView: React.FC<{ onBack?: () => void }> = ({ onBack 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreate) return;
     setFeedback(null);
     setSubmitting(true);
 
@@ -138,16 +140,20 @@ export const DailyProductionView: React.FC<{ onBack?: () => void }> = ({ onBack 
               </button>
             )}
             <h1 className="text-xl font-black text-slate-900">
-              تسجيل الإنتاج اليومي
+              {canCreate ? 'تسجيل الإنتاج اليومي' : 'سجل ومتابعة الإنتاج اليومي'}
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            تسجيل إنتاج البيض واللحم، استهلاك الأعلاف والمياه، والوفيات مع تحديث أعداد القطيع تلقائياً
+            {canCreate
+              ? 'تسجيل إنتاج البيض واللحم، استهلاك الأعلاف والمياه، والوفيات مع تحديث أعداد القطيع تلقائياً'
+              : 'استعراض ومتابعة سجلات الإنتاج اليومي، استهلاك الأعلاف والمياه، ومعدلات النفوق للقطعان النشطة'}
           </p>
         </div>
 
         <div className="text-left text-xs bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-          <span className="text-slate-400 block text-[11px]">المسؤول الحالي عن الإدخال:</span>
+          <span className="text-slate-400 block text-[11px]">
+            {canCreate ? 'المسؤول الحالي عن الإدخال:' : 'المستخدم الحالي (صلاحية عرض ومتابعة):'}
+          </span>
           <span className="font-bold text-slate-800">{user?.fullName} ({user?.roleNameAr})</span>
         </div>
       </div>
@@ -169,229 +175,260 @@ export const DailyProductionView: React.FC<{ onBack?: () => void }> = ({ onBack 
         </div>
       )}
 
-      {/* Grid: Entry Form (Left) & Live Flock Status (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Production Entry Form */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-            <Egg className="w-5 h-5 text-emerald-700" />
-            <h2 className="text-sm font-bold text-slate-900">
-              استمارة تسجيل حركة العنبر اليومية
-            </h2>
+      {canCreate ? (
+        /* Grid: Entry Form (Left) & Live Flock Status (Right) - SUPERVISOR & ADMIN ONLY */
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Production Entry Form */}
+          <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+              <Egg className="w-5 h-5 text-emerald-700" />
+              <h2 className="text-sm font-bold text-slate-900">
+                استمارة تسجيل حركة العنبر اليومية
+              </h2>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+              {/* Flock Selection & Date */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">القطيع المستهدف *</label>
+                  <select
+                    required
+                    value={formData.flockId}
+                    onChange={(e) => setFormData({ ...formData, flockId: e.target.value })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-bold"
+                  >
+                    {flocks.map((flk) => (
+                      <option key={`prod-flk-${flk.id}`} value={flk.id}>
+                        {flk.flock_code} ({flk.breed}) - {flk.house_name} [{flk.current_count} طائر]
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">تاريخ التسجيل *</label>
+                  <input
+                    type="date"
+                    required
+                    value={formData.recordDate}
+                    onChange={(e) => setFormData({ ...formData, recordDate: e.target.value })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Production Qty & Unit */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-emerald-50/40 rounded-xl border border-emerald-100">
+                <div>
+                  <label className="block font-bold text-emerald-950 mb-1">كمية الإنتاج المجمّع *</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    value={formData.productionQuantity}
+                    onChange={(e) => setFormData({ ...formData, productionQuantity: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-emerald-300 rounded-lg bg-white font-mono text-sm font-bold text-emerald-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-emerald-950 mb-1">وحدة القياس *</label>
+                  <select
+                    value={formData.unit}
+                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                    className="w-full p-2.5 border border-emerald-300 rounded-lg bg-white"
+                  >
+                    <option value="طبق">طبق بيض (30 بيضة)</option>
+                    <option value="طائر">طائر جاهز للتسويق</option>
+                    <option value="كجم">كيلوجرام (لحم وزن قائم)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Mortality, Feed & Water */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    النافق / الوفيات (طائر) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    value={formData.mortalityCount}
+                    onChange={(e) => setFormData({ ...formData, mortalityCount: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono font-bold text-rose-700"
+                  />
+                  <span className="text-[10px] text-slate-400">يُخصم تلقائياً من رصيد القطيع</span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">العلف المستهلك (كجم)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.feedConsumedKg}
+                    onChange={(e) => setFormData({ ...formData, feedConsumedKg: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">المياه المستهلكة (لتر)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.waterConsumedLiters}
+                    onChange={(e) => setFormData({ ...formData, waterConsumedLiters: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Avg Weight & Climate */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">متوسط وزن العينة (جرام)</label>
+                  <input
+                    type="number"
+                    value={formData.avgWeightG}
+                    onChange={(e) => setFormData({ ...formData, avgWeightG: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">درجة الحرارة داخل العنبر (°م)</label>
+                  <input
+                    type="number"
+                    value={formData.temperatureC}
+                    onChange={(e) => setFormData({ ...formData, temperatureC: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">نسبة الرطوبة (%)</label>
+                  <input
+                    type="number"
+                    value={formData.humidityPct}
+                    onChange={(e) => setFormData({ ...formData, humidityPct: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">ملاحظات المشرف والحالة الصحية</label>
+                <textarea
+                  rows={2}
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50"
+                  placeholder="نشاط الطيور، انتظام الإضاءة والتهوية، التحصينات المعطاة..."
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold shadow-xs disabled:opacity-50 transition-colors"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{submitting ? 'جاري الحفظ والخصم...' : 'حفظ سجل الإنتاج وتحديث القطيع'}</span>
+                </button>
+              </div>
+            </form>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-            {/* Flock Selection & Date */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">القطيع المستهدف *</label>
-                <select
-                  required
-                  value={formData.flockId}
-                  onChange={(e) => setFormData({ ...formData, flockId: e.target.value })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-bold"
-                >
-                  {flocks.map((flk) => (
-                    <option key={`prod-flk-${flk.id}`} value={flk.id}>
-                      {flk.flock_code} ({flk.breed}) - {flk.house_name} [{flk.current_count} طائر]
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">تاريخ التسجيل *</label>
-                <input
-                  type="date"
-                  required
-                  value={formData.recordDate}
-                  onChange={(e) => setFormData({ ...formData, recordDate: e.target.value })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Production Qty & Unit */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-emerald-50/40 rounded-xl border border-emerald-100">
-              <div>
-                <label className="block font-bold text-emerald-950 mb-1">كمية الإنتاج المجمّع *</label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  value={formData.productionQuantity}
-                  onChange={(e) => setFormData({ ...formData, productionQuantity: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-emerald-300 rounded-lg bg-white font-mono text-sm font-bold text-emerald-900"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-emerald-950 mb-1">وحدة القياس *</label>
-                <select
-                  value={formData.unit}
-                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                  className="w-full p-2.5 border border-emerald-300 rounded-lg bg-white"
-                >
-                  <option value="طبق">طبق بيض (30 بيضة)</option>
-                  <option value="طائر">طائر جاهز للتسويق</option>
-                  <option value="كجم">كيلوجرام (لحم وزن قائم)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Mortality, Feed & Water */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  النافق / الوفيات (طائر) *
-                </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  value={formData.mortalityCount}
-                  onChange={(e) => setFormData({ ...formData, mortalityCount: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono font-bold text-rose-700"
-                />
-                <span className="text-[10px] text-slate-400">يُخصم تلقائياً من رصيد القطيع</span>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">العلف المستهلك (كجم)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.feedConsumedKg}
-                  onChange={(e) => setFormData({ ...formData, feedConsumedKg: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">المياه المستهلكة (لتر)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.waterConsumedLiters}
-                  onChange={(e) => setFormData({ ...formData, waterConsumedLiters: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Avg Weight & Climate */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">متوسط وزن العينة (جرام)</label>
-                <input
-                  type="number"
-                  value={formData.avgWeightG}
-                  onChange={(e) => setFormData({ ...formData, avgWeightG: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">درجة الحرارة داخل العنبر (°م)</label>
-                <input
-                  type="number"
-                  value={formData.temperatureC}
-                  onChange={(e) => setFormData({ ...formData, temperatureC: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">نسبة الرطوبة (%)</label>
-                <input
-                  type="number"
-                  value={formData.humidityPct}
-                  onChange={(e) => setFormData({ ...formData, humidityPct: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
-                />
-              </div>
-            </div>
-
+          {/* Selected Flock Card Context */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">ملاحظات المشرف والحالة الصحية</label>
-              <textarea
-                rows={2}
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50"
-                placeholder="نشاط الطيور، انتظام الإضاءة والتهوية، التحصينات المعطاة..."
-              />
-            </div>
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                بيانات القطيع المختار حالياً
+              </h2>
 
-            <div className="pt-2 flex justify-end">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex items-center gap-2 px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold shadow-xs disabled:opacity-50 transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                <span>{submitting ? 'جاري الحفظ والخصم...' : 'حفظ سجل الإنتاج وتحديث القطيع'}</span>
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Selected Flock Card Context */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
-          <div>
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-              بيانات القطيع المختار حالياً
-            </h2>
-
-            {selectedFlock ? (
-              <div className="space-y-3">
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-xs font-mono font-black text-slate-900 block">
-                    {selectedFlock.flock_code}
-                  </span>
-                  <div className="text-xs text-slate-600 font-semibold mt-1">
-                    {selectedFlock.breed} — {selectedFlock.house_name}
-                  </div>
-                  <div className="text-[11px] text-slate-500">{selectedFlock.farm_name}</div>
-                </div>
-
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">العدد الابتدائي عند التسكين:</span>
-                    <span className="font-mono font-bold text-slate-800">{selectedFlock.initial_count.toLocaleString('ar-EG')}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">العدد الحي الفعلي الحالي:</span>
-                    <span className="font-mono font-black text-emerald-800 text-sm">
-                      {selectedFlock.current_count.toLocaleString('ar-EG')} طائر
+              {selectedFlock ? (
+                <div className="space-y-3">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-xs font-mono font-black text-slate-900 block">
+                      {selectedFlock.flock_code}
                     </span>
+                    <div className="text-xs text-slate-600 font-semibold mt-1">
+                      {selectedFlock.breed} — {selectedFlock.house_name}
+                    </div>
+                    <div className="text-[11px] text-slate-500">{selectedFlock.farm_name}</div>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">إجمالي الوفيات التراكمية:</span>
-                    <span className="font-mono font-bold text-rose-700">{selectedFlock.total_mortality.toLocaleString('ar-EG')}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">تاريخ التسكين:</span>
-                    <span className="font-mono text-slate-700">{selectedFlock.entry_date}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5">
-                    <span className="text-slate-500">الوزن المستهدف:</span>
-                    <span className="font-mono text-slate-700">{selectedFlock.target_weight_g} جم</span>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">العدد الابتدائي عند التسكين:</span>
+                      <span className="font-mono font-bold text-slate-800">{selectedFlock.initial_count.toLocaleString('ar-EG')}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">العدد الحي الفعلي الحالي:</span>
+                      <span className="font-mono font-black text-emerald-800 text-sm">
+                        {selectedFlock.current_count.toLocaleString('ar-EG')} طائر
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">إجمالي الوفيات التراكمية:</span>
+                      <span className="font-mono font-bold text-rose-700">{selectedFlock.total_mortality.toLocaleString('ar-EG')}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">تاريخ التسكين:</span>
+                      <span className="font-mono text-slate-700">{selectedFlock.entry_date}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-slate-500">الوزن المستهدف:</span>
+                      <span className="font-mono text-slate-700">{selectedFlock.target_weight_g} جم</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-slate-400 text-xs">
-                يرجى اختيار قطيع لعرض إحصاءاته
-              </div>
-            )}
-          </div>
+              ) : (
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  يرجى اختيار قطيع لعرض إحصاءاته
+                </div>
+              )}
+            </div>
 
-          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 mt-4 leading-relaxed">
-            <span className="font-bold block">ملاحظة أمان وتكامل:</span>
-            تسجيل الوفيات يخصم فورياً من إجمالي الطيور الحية في قاعدة البيانات لحفظ توازن الأصول الحية.
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 mt-4 leading-relaxed">
+              <span className="font-bold block">ملاحظة أمان وتكامل:</span>
+              تسجيل الوفيات يخصم فورياً من إجمالي الطيور الحية في قاعدة البيانات لحفظ توازن الأصول الحية.
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* Read-Only Active Flocks Summary for View-Only Roles (e.g. PROD_MANAGER) */
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-bold text-slate-700">
+              ملخص القطعان النشطة حالياً ({flocks.length} قطيع)
+            </h2>
+            <Badge variant="slate">وضع العرض والمتابعة فقط</Badge>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            {flocks.map((flk) => (
+              <div key={`ro-flk-${flk.id}`} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-black text-slate-900">{flk.flock_code}</span>
+                  <span className="text-[11px] text-emerald-800 font-bold">{flk.breed}</span>
+                </div>
+                <div className="text-slate-600 text-[11px]">{flk.house_name} — {flk.farm_name}</div>
+                <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/80">
+                  <span className="text-slate-500">العدد الحي الحالي:</span>
+                  <span className="font-mono font-black text-emerald-800">{flk.current_count.toLocaleString('ar-EG')} طائر</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">الوفيات التراكمية:</span>
+                  <span className="font-mono font-bold text-rose-700">{flk.total_mortality.toLocaleString('ar-EG')} طائر</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Historical Records Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">

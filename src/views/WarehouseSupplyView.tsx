@@ -14,16 +14,15 @@ import {
 } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../context/AuthContext.js';
-import { WarehouseReceipt, Product, Requisition, Warehouse } from '../types.js';
+import { WarehouseReceipt, Product, Warehouse } from '../types.js';
 import { Modal } from '../components/ui/Modal.js';
 import { Badge } from '../components/ui/Badge.js';
 
 export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
-  const { hasRole, user } = useAuth();
+  const { hasRole } = useAuth();
   const [receipts, setReceipts] = useState<WarehouseReceipt[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Search
@@ -36,7 +35,6 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
 
   // Form State
   const [warehouseId, setWarehouseId] = useState<string>('');
-  const [requisitionId, setRequisitionId] = useState<string>('');
   const [supplyDate, setSupplyDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplierName, setSupplierName] = useState('مزارع الإنتاج المركزية - قسم التحضين');
   const [notes, setNotes] = useState('');
@@ -53,11 +51,9 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
   const loadData = async () => {
     try {
       setLoading(true);
-      const canFetchRequisitions = hasRole('SUPERVISOR', 'PROD_MANAGER', 'ADMIN');
-      const [recRes, prodRes, reqRes, whRes] = await Promise.all([
+      const [recRes, prodRes, whRes] = await Promise.all([
         api.getWarehouseReceipts(),
         api.getProducts(),
-        canFetchRequisitions ? api.getRequisitions().catch(() => ({ success: false, requisitions: [] })) : Promise.resolve({ success: false, requisitions: [] }),
         api.getWarehouses()
       ]);
 
@@ -67,9 +63,6 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
         if (prodRes.products.length > 0 && items[0].productId === 0) {
           setItems([{ productId: prodRes.products[0].id, quantityReceived: 50, unitCost: 18.0, batchNumber: 'LOT-2026-001', expiryDate: '' }]);
         }
-      }
-      if (reqRes.success) {
-        setRequisitions(reqRes.requisitions.filter((r: Requisition) => r.status === 'APPROVED'));
       }
       if (whRes.success && whRes.warehouses?.length > 0) {
         setWarehouses(whRes.warehouses);
@@ -107,7 +100,6 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
     try {
       const res = await api.createWarehouseReceipt({
         warehouseId: Number(warehouseId) || (warehouses[0]?.id || 1),
-        requisitionId: requisitionId ? Number(requisitionId) : null,
         supplyDate,
         supplierName,
         notes,
@@ -177,7 +169,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
           </p>
         </div>
 
-        {hasRole('WAREHOUSE_KEEPER', 'PROD_MANAGER', 'ADMIN') && (
+        {hasRole('WAREHOUSE_KEEPER', 'ADMIN') && (
           <button
             type="button"
             onClick={() => {
@@ -282,7 +274,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
         )}
 
         <form onSubmit={handleCreateReceipt} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
             <div>
               <label className="block font-bold text-slate-700 mb-1">المستودع المستلم *</label>
               <select
@@ -294,22 +286,6 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
                 {warehouses.map((w) => (
                   <option key={`wh-opt-${w.id}`} value={w.id}>
                     {w.warehouse_name} ({w.location})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">طلب الاحتياج المرتبط (اختياري)</label>
-              <select
-                value={requisitionId}
-                onChange={(e) => setRequisitionId(e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded-lg bg-white"
-              >
-                <option value="">بدون ربط (توريد مباشر/إنتاج داخلي)...</option>
-                {requisitions.map((req) => (
-                  <option key={`wh-req-opt-${req.id}`} value={req.id}>
-                    {req.request_no} - {req.req_type} ({req.requester_name})
                   </option>
                 ))}
               </select>

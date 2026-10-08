@@ -25,7 +25,6 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  quickSwitchUser: (username: string) => Promise<void>;
   logout: () => void;
   hasRole: (...roles: (RoleCode | string)[]) => boolean;
   hasPermission: (perm: string) => boolean;
@@ -77,10 +76,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const quickSwitchUser = async (_username: string) => {
-    logout();
-  };
-
   const logout = () => {
     removeAuthToken();
     setToken(null);
@@ -107,7 +102,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         loading,
         login,
-        quickSwitchUser,
         logout,
         hasRole,
         hasPermission,

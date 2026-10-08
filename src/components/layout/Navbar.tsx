@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, LogOut, ShieldCheck, ChevronDown, Check, UserCircle2, Sprout, Menu } from 'lucide-react';
-import { useAuth, DEMO_ACCOUNTS } from '../../context/AuthContext.js';
+import { Bell, LogOut, Sprout, Menu } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext.js';
 import { api } from '../../api.js';
 
 interface NavbarProps {
@@ -13,12 +13,10 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onToggleNotifications,
   onNavigate,
-  onToggleMobileSidebar,
-  currentView
+  onToggleMobileSidebar
 }) => {
-  const { user, logout, quickSwitchUser } = useAuth();
+  const { user, logout } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
-  const [showRoleMenu, setShowRoleMenu] = useState(false);
 
   useEffect(() => {
     const checkNotifications = async () => {
@@ -72,7 +70,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Right Controls: Notifications, Role Switcher, Logout */}
+      {/* Right Controls: Notifications, Current User Info, Logout */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Notifications Bell */}
         <button
@@ -91,77 +89,27 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
 
-        {/* Team Member Switcher Dropdown */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowRoleMenu(!showRoleMenu)}
-            className="flex items-center gap-2 py-1 px-2.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white transition-all text-right"
-          >
+        {/* Current User Profile & Logout */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 py-1 px-2.5 rounded-lg border border-slate-200 bg-slate-50/70 text-right">
             <div className="w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center">
               {user?.fullName?.slice(0, 2) || 'ع'}
             </div>
-            <div className="hidden lg:block text-right">
+            <div className="hidden sm:block text-right">
               <div className="text-xs font-bold text-slate-900 leading-tight">{user?.fullName}</div>
               <div className="text-[10px] text-emerald-700 font-medium leading-none">{user?.roleNameAr}</div>
             </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+          </div>
+
+          <button
+            type="button"
+            onClick={logout}
+            title="تسجيل الخروج"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100 text-xs font-bold transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">تسجيل الخروج</span>
           </button>
-
-          {showRoleMenu && (
-            <div
-              className="absolute left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95"
-              onClick={() => setShowRoleMenu(false)}
-            >
-              <div className="px-3 py-1.5 border-b border-slate-100">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  التبديل بين أعضاء الفريق المعتمدين
-                </p>
-              </div>
-
-              <div className="py-1">
-                {DEMO_ACCOUNTS.map((acc) => {
-                  const isActive = user?.username === acc.username;
-                  return (
-                    <button
-                      key={acc.username}
-                      type="button"
-                      onClick={() => quickSwitchUser(acc.username)}
-                      className={`w-full px-3 py-2 text-right flex items-center justify-between text-xs transition-colors ${
-                        isActive ? 'bg-emerald-50 text-emerald-900 font-bold' : 'hover:bg-slate-50 text-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center ${
-                            isActive ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
-                          }`}
-                        >
-                          {acc.avatarText}
-                        </div>
-                        <div>
-                          <div className="font-semibold">{acc.fullName}</div>
-                          <div className="text-[10px] text-slate-400">{acc.roleNameAr}</div>
-                        </div>
-                      </div>
-                      {isActive && <Check className="w-4 h-4 text-emerald-600" />}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="border-t border-slate-100 mt-1 pt-1 px-2">
-                <button
-                  type="button"
-                  onClick={logout}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-colors"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>تسجيل الخروج</span>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </header>

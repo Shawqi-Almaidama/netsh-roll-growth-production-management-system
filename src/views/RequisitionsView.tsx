@@ -35,10 +35,18 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filter States - if initialTab is 'review', pre-filter to SUBMITTED
+  // Filter States
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>(initialTab === 'review' ? 'SUBMITTED' : 'all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
+
+  useEffect(() => {
+    if (initialTab === 'create' && canCreate) {
+      setActiveTab('create');
+    } else {
+      setActiveTab('list');
+    }
+  }, [initialTab, canCreate]);
 
   // Selected Requisition Details Modal
   const [selectedReq, setSelectedReq] = useState<Requisition | null>(null);
@@ -263,6 +271,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
 
   const statusCounts = {
     all: requisitions.length,
+    DRAFT: requisitions.filter(r => r.status === 'DRAFT').length,
     SUBMITTED: requisitions.filter(r => r.status === 'SUBMITTED').length,
     UNDER_REVIEW: requisitions.filter(r => r.status === 'UNDER_REVIEW').length,
     APPROVED: requisitions.filter(r => r.status === 'APPROVED').length,
@@ -371,11 +380,12 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
           <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
             {[
               { id: 'all', label: 'الكل', count: statusCounts.all },
-              { id: 'SUBMITTED', label: 'مرسل (SUBMITTED)', count: statusCounts.SUBMITTED },
-              { id: 'UNDER_REVIEW', label: 'قيد المراجعة (UNDER_REVIEW)', count: statusCounts.UNDER_REVIEW },
-              { id: 'APPROVED', label: 'معتمد (APPROVED)', count: statusCounts.APPROVED },
-              { id: 'REJECTED', label: 'مرفوض (REJECTED)', count: statusCounts.REJECTED },
-              { id: 'COMPLETED', label: 'مكتمل (COMPLETED)', count: statusCounts.COMPLETED }
+              { id: 'DRAFT', label: 'مسودة', count: statusCounts.DRAFT },
+              { id: 'SUBMITTED', label: 'مقدمة', count: statusCounts.SUBMITTED },
+              { id: 'UNDER_REVIEW', label: 'قيد المراجعة', count: statusCounts.UNDER_REVIEW },
+              { id: 'APPROVED', label: 'معتمدة', count: statusCounts.APPROVED },
+              { id: 'REJECTED', label: 'مرفوضة', count: statusCounts.REJECTED },
+              { id: 'COMPLETED', label: 'مكتملة', count: statusCounts.COMPLETED }
             ].map((st) => (
               <button
                 key={st.id}
@@ -433,11 +443,12 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
                 className="text-xs py-2 px-3 border border-slate-300 rounded-lg bg-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="all">جميع الحالات</option>
-                <option value="SUBMITTED">مُقدّم (SUBMITTED)</option>
+                <option value="DRAFT">مسودة (DRAFT)</option>
+                <option value="SUBMITTED">مقدمة (SUBMITTED)</option>
                 <option value="UNDER_REVIEW">قيد المراجعة (UNDER_REVIEW)</option>
-                <option value="APPROVED">معتمد (APPROVED)</option>
-                <option value="REJECTED">مرفوض (REJECTED)</option>
-                <option value="COMPLETED">مكتمل (COMPLETED)</option>
+                <option value="APPROVED">معتمدة (APPROVED)</option>
+                <option value="REJECTED">مرفوضة (REJECTED)</option>
+                <option value="COMPLETED">مكتملة (COMPLETED)</option>
               </select>
             </div>
           </div>
@@ -868,21 +879,48 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({ initialTab =
               </div>
             )}
 
-            {/* Reviewer Summary Card (if reviewed) */}
-            {(selectedReq.reviewer_name || selectedReq.review_date || selectedReq.review_notes) && (
-              <div className="p-3.5 bg-blue-50/60 rounded-xl border border-blue-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <span className="text-[11px] text-slate-500 block">اسم المراجع:</span>
-                  <span className="font-bold text-slate-900">{selectedReq.reviewer_name || '-'}</span>
+            {/* Reviewer Summary Card (if reviewed or in post-review state) */}
+            {(selectedReq.status === 'APPROVED' ||
+              selectedReq.status === 'REJECTED' ||
+              selectedReq.status === 'COMPLETED' ||
+              selectedReq.reviewer_name ||
+              selectedReq.review_date ||
+              selectedReq.review_notes) && (
+              <div className="p-3.5 bg-blue-50/60 rounded-xl border border-blue-200 space-y-2.5">
+                <div className="flex items-center justify-between border-b border-blue-200/60 pb-2">
+                  <span className="text-[11px] font-bold text-blue-950">حالة قرار المراجعة:</span>
+                  <span className="font-bold text-emerald-800">
+                    {selectedReq.status === 'APPROVED'
+                      ? 'تم اعتماد الطلب'
+                      : selectedReq.status === 'COMPLETED'
+                      ? 'تم اعتماد الطلب وإكماله'
+                      : selectedReq.status === 'REJECTED'
+                      ? 'تم رفض الطلب'
+                      : 'قيد المراجعة الفنية'}
+                  </span>
                 </div>
-                <div>
-                  <span className="text-[11px] text-slate-500 block">تاريخ المراجعة:</span>
-                  <span className="font-mono font-bold text-slate-900">{selectedReq.review_date || '-'}</span>
-                </div>
-                <div className="sm:col-span-3">
-                  <span className="text-[11px] text-slate-500 block">ملاحظات المراجعة المعتمدة:</span>
-                  <span className="font-semibold text-slate-800">{selectedReq.review_notes || 'لا توجد ملاحظات إضافية'}</span>
-                </div>
+                {(selectedReq.reviewer_name || selectedReq.review_date) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {selectedReq.reviewer_name && (
+                      <div>
+                        <span className="text-[11px] text-slate-500 block">اسم المراجع:</span>
+                        <span className="font-bold text-slate-900">{selectedReq.reviewer_name}</span>
+                      </div>
+                    )}
+                    {selectedReq.review_date && (
+                      <div>
+                        <span className="text-[11px] text-slate-500 block">تاريخ المراجعة:</span>
+                        <span className="font-mono font-bold text-slate-900">{selectedReq.review_date}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selectedReq.review_notes && (
+                  <div>
+                    <span className="text-[11px] text-slate-500 block">ملاحظات المراجعة المعتمدة:</span>
+                    <span className="font-semibold text-slate-800">{selectedReq.review_notes}</span>
+                  </div>
+                )}
               </div>
             )}
 

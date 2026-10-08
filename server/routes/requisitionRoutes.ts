@@ -158,7 +158,7 @@ router.get('/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADM
 // POST /requisitions - Create Requisition (FR-03, FR-04, FR-05, FR-06)
 // Bound to: Requester, Type, Date, Items, Quantities (BR-02)
 // -------------------------------------------------------------
-router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.post('/', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const {
     reqType,
     farmId,
@@ -295,7 +295,7 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN
 // -------------------------------------------------------------
 // POST /requisitions/:id/submit - Submit a Draft Requisition (DRAFT -> SUBMITTED)
 // -------------------------------------------------------------
-router.post('/:id/submit', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/submit', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const reqId = Number(req.params.id);
   if (!Number.isInteger(reqId) || reqId <= 0) {
     return res.status(400).json({ success: false, message: 'معرف طلب الاحتياج غير صالح' });

@@ -241,7 +241,6 @@ export interface WarehouseReceipt {
   received_by_name?: string;
   receipt_date: string;
   supply_date?: string;
-  request_no?: string;
   batch_number?: string;
   notes?: string;
   created_at: string;
