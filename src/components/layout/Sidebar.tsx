@@ -1,161 +1,236 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   LayoutDashboard,
   Home,
   Egg,
   ClipboardList,
-  PackagePlus,
-  CheckSquare,
   ShoppingCart,
   Warehouse,
-  FileBarChart2,
+  Package,
+  FileBarChart,
   Users,
-  ChevronLeft
+  ChevronRight,
+  ChevronLeft,
+  ShieldCheck,
+  X
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext.js';
+import { useAuth, RoleCode } from '../../context/AuthContext.js';
+
+export interface NavItem {
+  id: string;
+  label: string;
+  icon: React.ElementType;
+  allowedRoles: RoleCode[];
+}
+
+export const navItems: NavItem[] = [
+  {
+    id: 'dashboard',
+    label: 'لوحة التحكم',
+    icon: LayoutDashboard,
+    allowedRoles: ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT']
+  },
+  {
+    id: 'houses-flocks',
+    label: 'الهناجر والقطعان',
+    icon: Home,
+    allowedRoles: ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR']
+  },
+  {
+    id: 'daily-production',
+    label: 'الإنتاج اليومي',
+    icon: Egg,
+    allowedRoles: ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR']
+  },
+  {
+    id: 'requisitions',
+    label: 'الطلبات',
+    icon: ClipboardList,
+    allowedRoles: ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'WAREHOUSE_KEEPER']
+  },
+  {
+    id: 'sales',
+    label: 'المبيعات والفواتير',
+    icon: ShoppingCart,
+    allowedRoles: ['ADMIN', 'SALES_OFFICER', 'ACCOUNTANT']
+  },
+  {
+    id: 'warehouse',
+    label: 'المخازن والتوريد',
+    icon: Warehouse,
+    allowedRoles: ['ADMIN', 'WAREHOUSE_KEEPER', 'PROD_MANAGER']
+  },
+  {
+    id: 'products-customers',
+    label: 'الأصناف والعملاء',
+    icon: Package,
+    allowedRoles: ['ADMIN', 'PROD_MANAGER', 'SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT']
+  },
+  {
+    id: 'reports',
+    label: 'التقارير',
+    icon: FileBarChart,
+    allowedRoles: ['ADMIN', 'PROD_MANAGER', 'SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT']
+  },
+  {
+    id: 'users-management',
+    label: 'إدارة المستخدمين',
+    icon: Users,
+    allowedRoles: ['ADMIN']
+  }
+];
 
 interface SidebarProps {
-  currentView: string;
-  onNavigate: (view: string) => void;
+  activeView: string;
+  setActiveView: (view: string) => void;
+  isCollapsed: boolean;
+  setIsCollapsed: (collapsed: boolean) => void;
   isMobileOpen: boolean;
-  onCloseMobile: () => void;
+  setIsMobileOpen: (open: boolean) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  currentView,
-  onNavigate,
+  activeView,
+  setActiveView,
+  isCollapsed,
+  setIsCollapsed,
   isMobileOpen,
-  onCloseMobile
+  setIsMobileOpen
 }) => {
   const { user, hasRole } = useAuth();
 
-  const isSupervisor = hasRole('SUPERVISOR');
-  const isProdMgr = hasRole('PROD_MANAGER');
-  const isSales = hasRole('SALES_OFFICER');
-  const isWarehouse = hasRole('WAREHOUSE_KEEPER');
-  const isAccountant = hasRole('ACCOUNTANT');
-  const isAdmin = hasRole('ADMIN');
+  const visibleItems = navItems.filter((item) => hasRole(...item.allowedRoles));
 
-  const navGroups = [
-    {
-      title: 'الرئيسية',
-      items: [
-        { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, visible: true }
-      ]
-    },
-    {
-      title: 'الإنتاج',
-      items: [
-        { id: 'houses', label: 'الهناجر والقطعان', icon: Home, visible: isSupervisor || isProdMgr || isAdmin },
-        { id: 'daily-production', label: 'الإنتاج اليومي', icon: Egg, visible: isSupervisor || isProdMgr || isAdmin }
-      ]
-    },
-    {
-      title: 'طلبات الاحتياج',
-      items: [
-        { id: 'requisitions', label: 'إدارة الطلبات', icon: ClipboardList, visible: isSupervisor || isProdMgr || isAdmin }
-      ]
-    },
-    {
-      title: 'المبيعات',
-      items: [
-        { id: 'products-customers', label: 'المنتجات والعملاء', icon: ShoppingCart, visible: isSales || isWarehouse || isAdmin },
-        { id: 'sales', label: 'فواتير المبيعات', icon: ShoppingCart, visible: isSales || isAccountant || isAdmin }
-      ]
-    },
-    {
-      title: 'المخازن',
-      items: [
-        { id: 'warehouse', label: 'توريد المنتجات للمخازن', icon: Warehouse, visible: isWarehouse || isAccountant || isAdmin }
-      ]
-    },
-    {
-      title: 'التقارير التشغيلية',
-      items: [
-        { id: 'reports', label: 'التقارير', icon: FileBarChart2, visible: isProdMgr || isAccountant || isAdmin }
-      ]
-    },
-    {
-      title: 'الإدارة',
-      items: [
-        { id: 'users-management', label: 'المستخدمون والصلاحيات', icon: Users, visible: isAdmin }
-      ]
-    }
-  ];
-
-  const handleItemClick = (id: string) => {
-    onNavigate(id);
-    if (isMobileOpen) onCloseMobile();
-  };
+  useEffect(() => {
+    if (!isMobileOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMobileOpen, setIsMobileOpen]);
 
   return (
     <>
-      {/* Mobile overlay */}
       {isMobileOpen && (
         <div
-          className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-xs"
-          onClick={onCloseMobile}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 lg:hidden transition-opacity"
+          onClick={() => setIsMobileOpen(false)}
         />
       )}
 
       <aside
         id="main-sidebar"
-        className={`fixed lg:sticky top-0 lg:top-16 right-0 z-40 lg:z-10 h-full lg:h-[calc(100vh-4rem)] w-72 bg-white border-l border-slate-200 flex flex-col transition-transform duration-200 ease-in-out ${
-          isMobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
-        }`}
-        dir="rtl"
+        aria-label="القائمة الجانبية"
+        className={`fixed top-0 right-0 h-full bg-slate-900 text-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col border-l border-slate-800 ${
+          isCollapsed ? 'lg:w-20' : 'lg:w-64'
+        } ${isMobileOpen ? 'w-72 sm:w-64 translate-x-0 shadow-2xl' : 'w-72 sm:w-64 translate-x-full lg:translate-x-0'}`}
       >
-        {/* User Profile Card in Sidebar */}
-        <div className="p-4 border-b border-slate-100 bg-slate-50/70">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white font-bold flex items-center justify-center text-sm shadow-xs">
-              {user?.fullName?.slice(0, 2) || 'مش'}
+        {/* Brand Header */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/40 shrink-0">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-950/50">
+              <Egg className="w-6 h-6 text-white" />
             </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="text-xs font-bold text-slate-900 truncate">{user?.fullName}</h4>
-              <p className="text-[11px] text-emerald-700 font-semibold truncate">{user?.roleNameAr}</p>
-              <p className="text-[10px] text-slate-400 truncate">{user?.branchName || 'شركة نتش رول جروث'}</p>
-            </div>
+            {(!isCollapsed || isMobileOpen) && (
+              <div className="flex flex-col truncate">
+                <span className="font-bold text-sm tracking-wide text-white truncate">
+                  نتش رول جروث
+                </span>
+                <span className="text-[11px] text-emerald-400 font-medium truncate">
+                  نظام إدارة قسم الإنتاج
+                </span>
+              </div>
+            )}
           </div>
+
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            aria-label={isCollapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
+            className="hidden lg:flex w-8 h-8 items-center justify-center rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+          >
+            {isCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsMobileOpen(false)}
+            aria-label="إغلاق القائمة الجانبية"
+            className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Navigation list */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-4">
-          {navGroups.map((group) => {
-            const visibleItems = group.items.filter(item => item.visible);
-            if (visibleItems.length === 0) return null;
+        {/* Mobile User Identity Card */}
+        {user && (!isCollapsed || isMobileOpen) && (
+          <div className="lg:hidden px-4 py-3 bg-slate-950/60 border-b border-slate-800/80 flex items-center justify-between gap-2 shrink-0">
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-white truncate">{user.fullName}</p>
+              <p className="text-[11px] text-slate-400 font-mono truncate">@{user.username}</p>
+            </div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60 shrink-0">
+              {user.roleNameAr}
+            </span>
+          </div>
+        )}
 
+        {/* Navigation Links */}
+        <nav className="flex-1 py-3 px-3 space-y-1 overflow-y-auto overscroll-contain">
+          {visibleItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeView === item.id;
             return (
-              <div key={group.title} className="space-y-1">
-                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  {group.title}
-                </div>
-                {visibleItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = currentView === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => handleItemClick(item.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                        isActive
-                          ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200/80 shadow-2xs'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-700' : 'text-slate-400'}`} />
-                        <span>{item.label}</span>
-                      </div>
-                      {isActive && <ChevronLeft className="w-3.5 h-3.5 text-emerald-600" />}
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                key={item.id}
+                id={`nav-item-${item.id}`}
+                type="button"
+                onClick={() => {
+                  setActiveView(item.id);
+                  setIsMobileOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-medium transition-all duration-150 min-h-[44px] ${
+                  isActive
+                    ? 'bg-emerald-700 text-white shadow-md shadow-emerald-950/50 font-semibold'
+                    : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
+                }`}
+                title={isCollapsed ? item.label : undefined}
+              >
+                <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                {(!isCollapsed || isMobileOpen) && (
+                  <span className="truncate">{item.label}</span>
+                )}
+              </button>
             );
           })}
         </nav>
+
+        {/* System Role Security Footer */}
+        <div className="p-4 border-t border-slate-800 bg-slate-950/30 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-950/80 border border-emerald-800/50 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            </div>
+            {(!isCollapsed || isMobileOpen) && (
+              <div className="flex flex-col truncate">
+                <span className="text-xs font-semibold text-slate-300 truncate">
+                  صلاحيات محمية (RBAC)
+                </span>
+                <span className="text-[10px] text-slate-500 truncate">
+                  توثيق الجلسة مفعل
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
       </aside>
     </>
   );

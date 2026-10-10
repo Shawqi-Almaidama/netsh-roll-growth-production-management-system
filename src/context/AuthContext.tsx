@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, RoleCode } from '../types.js';
 import { api, getAuthToken, setAuthToken, removeAuthToken } from '../api.js';
 
+export type { RoleCode, User };
+
 interface DemoAccount {
   username: string;
   roleCode: RoleCode;

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { db } from '../db.js';
-import { authenticate, requireRoles, AuthenticatedRequest, createNotification } from '../auth.js';
+import { authenticate, requireRoles, AuthenticatedRequest, triggerLowStockNotifications } from '../auth.js';
 
 const router = Router();
 
@@ -146,7 +146,9 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
   // BR-01 & Line Calculations: Validate each product and verify sufficient cumulative stock across all lines
   const validatedLines: Array<{
     productId: number;
+    productCode: string;
     productName: string;
+    unit: string;
     quantity: number;
     unitPrice: number;
     lineTotal: number;
@@ -164,7 +166,7 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
       return res.status(400).json({ success: false, message: `البند رقم ${i + 1}: يجب تحديد المنتج وكمية صالحة أكبر من صفر` });
     }
 
-    const product = db.prepare('SELECT id, product_name, unit_price, current_stock, min_stock_alert FROM PRODUCTS WHERE id = ?').get(Number(item.productId)) as any;
+    const product = db.prepare('SELECT id, product_code, product_name, unit, unit_price, current_stock, min_stock_alert FROM PRODUCTS WHERE id = ?').get(Number(item.productId)) as any;
     if (!product) {
       return res.status(404).json({ success: false, message: `المنتج المحدد في البند رقم ${i + 1} غير موجود` });
     }
@@ -198,7 +200,9 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
 
     validatedLines.push({
       productId: product.id,
+      productCode: product.product_code,
       productName: product.product_name,
+      unit: product.unit,
       quantity: qty,
       unitPrice: price,
       lineTotal,
@@ -259,7 +263,14 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
       WHERE id = ?
     `);
 
-    const lowStockAlerts: string[] = [];
+    const lowStockProductsTriggered: Array<{
+      id: number;
+      product_code: string;
+      product_name: string;
+      current_stock: number;
+      min_stock_alert: number;
+      unit: string;
+    }> = [];
 
     for (const vLine of validatedLines) {
       insertLineStmt.run(invoiceId, vLine.productId, vLine.quantity, vLine.unitPrice, vLine.lineTotal);
@@ -270,21 +281,22 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
       const pInfo = validatedLines.find(l => l.productId === prodId)!;
       const remainingStock = pInfo.currentStock - totalUsed;
       if (remainingStock <= pInfo.minAlert) {
-        lowStockAlerts.push(`${pInfo.productName} (الرصيد المتبقي: ${remainingStock})`);
+        lowStockProductsTriggered.push({
+          id: pInfo.productId,
+          product_code: pInfo.productCode,
+          product_name: pInfo.productName,
+          current_stock: remainingStock,
+          min_stock_alert: pInfo.minAlert,
+          unit: pInfo.unit
+        });
       }
     }
 
     db.exec('COMMIT;');
 
-    // Create notifications for low stock products
-    if (lowStockAlerts.length > 0) {
-      createNotification({
-        roleTarget: 'PROD_MANAGER',
-        title: 'تنبيه: انخفاض مخزون بعض المنتجات للحد الأدنى',
-        message: `تم إصدار الفاتورة ${invoiceNo} وأصبح مخزون المواد التالية أقل من الحد الحرج: ${lowStockAlerts.join('، ')}`,
-        type: 'WARNING',
-        link: '/products'
-      });
+    // Create notifications for low stock products across relevant roles
+    if (lowStockProductsTriggered.length > 0) {
+      triggerLowStockNotifications(lowStockProductsTriggered, `فاتورة مبيعات رقم ${invoiceNo}`);
     }
 
     res.status(201).json({
@@ -292,7 +304,8 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
       message: `تم إصدار فاتورة المبيعات رقم ${invoiceNo} وتحديث المخزون بنجاح (BR-03)`,
       invoiceId,
       invoiceNo,
-      totalAmount: computedTotal
+      totalAmount: computedTotal,
+      lowStockWarnings: lowStockProductsTriggered
     });
   } catch (err: any) {
     try { db.exec('ROLLBACK;'); } catch {}

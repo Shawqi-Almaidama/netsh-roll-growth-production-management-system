@@ -149,6 +149,15 @@ export function computeAdminDashboardStats(period: string, unreadNotifs: number 
     LIMIT 6
   `).all();
 
+  const lowStockAlerts = db.prepare(`
+    SELECT id, product_code, product_name, category, current_stock, min_stock_alert, unit, unit_price,
+           (min_stock_alert - current_stock) as shortage_qty,
+           CASE WHEN current_stock <= 0 THEN 'OUT_OF_STOCK' ELSE 'LOW_STOCK' END as stock_status
+    FROM PRODUCTS
+    WHERE current_stock <= min_stock_alert
+    ORDER BY current_stock ASC, (min_stock_alert - current_stock) DESC
+  `).all();
+
   // Section 3: Daily Production & Mortality (From DAILY_PRODUCTION)
   // Egg Production = SUM(production_quantity) WHERE unit = 'طبق' (Never mixed with 'كجم')
   const prodStats = (db.prepare(`
@@ -238,6 +247,7 @@ export function computeAdminDashboardStats(period: string, unreadNotifs: number 
     recentSales,
     recentReceipts,
     stockItems,
+    lowStockAlerts,
     approvedUsers,
     recentAdminActions,
     recentSystemNotifications,
@@ -303,6 +313,16 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
     const activeFlocksCount = (db.prepare("SELECT COUNT(*) as c FROM FLOCKS WHERE status = 'ACTIVE'").get() as any)?.c || 0;
     const currentBirdsCount = (db.prepare("SELECT COALESCE(SUM(current_count), 0) as s FROM FLOCKS WHERE status = 'ACTIVE'").get() as any)?.s || 0;
     const totalMortality = (db.prepare('SELECT COALESCE(SUM(total_mortality), 0) as s FROM FLOCKS').get() as any)?.s || 0;
+    const lowStockCount = (db.prepare('SELECT COUNT(*) as c FROM PRODUCTS WHERE current_stock <= min_stock_alert').get() as any)?.c || 0;
+
+    const lowStockAlerts = db.prepare(`
+      SELECT id, product_code, product_name, category, current_stock, min_stock_alert, unit, unit_price,
+             (min_stock_alert - current_stock) as shortage_qty,
+             CASE WHEN current_stock <= 0 THEN 'OUT_OF_STOCK' ELSE 'LOW_STOCK' END as stock_status
+      FROM PRODUCTS
+      WHERE current_stock <= min_stock_alert
+      ORDER BY current_stock ASC, (min_stock_alert - current_stock) DESC
+    `).all();
 
     // Production Trend (last 7 days) - strictly egg production in 'طبق'
     const productionTrends = db.prepare(`
@@ -339,10 +359,12 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
         activeFlocksCount,
         currentBirdsCount,
         totalMortality,
+        lowStockCount,
         unreadNotifs
       },
       productionTrends,
-      pendingRequisitions
+      pendingRequisitions,
+      lowStockAlerts
     });
   }
 
@@ -368,11 +390,13 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
     `).all();
 
     const lowStockAlerts = db.prepare(`
-      SELECT id, product_code, product_name, category, current_stock, min_stock_alert, unit, unit_price
+      SELECT id, product_code, product_name, category, current_stock, min_stock_alert, unit, unit_price,
+             (min_stock_alert - current_stock) as shortage_qty,
+             CASE WHEN current_stock <= 0 THEN 'OUT_OF_STOCK' ELSE 'LOW_STOCK' END as stock_status
       FROM PRODUCTS
       WHERE current_stock <= min_stock_alert
       ORDER BY current_stock ASC
-      LIMIT 5
+      LIMIT 10
     `).all();
 
     return res.json({
@@ -414,11 +438,13 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
     `).all();
 
     const lowStockItems = db.prepare(`
-      SELECT id, product_code, product_name, category, current_stock, min_stock_alert, unit
+      SELECT id, product_code, product_name, category, current_stock, min_stock_alert, unit, unit_price,
+             (min_stock_alert - current_stock) as shortage_qty,
+             CASE WHEN current_stock <= 0 THEN 'OUT_OF_STOCK' ELSE 'LOW_STOCK' END as stock_status
       FROM PRODUCTS
       WHERE current_stock <= min_stock_alert
       ORDER BY current_stock ASC
-      LIMIT 6
+      LIMIT 10
     `).all();
 
     return res.json({
@@ -433,7 +459,8 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
         unreadNotifs
       },
       recentReceipts,
-      lowStockItems
+      lowStockItems,
+      lowStockAlerts: lowStockItems
     });
   }
 

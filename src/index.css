@@ -1,6 +1,21 @@
 @import "tailwindcss";
 
 @layer base {
+  html,
+  body {
+    background-color: #f8fafc;
+    color: #1e293b;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  a,
+  select,
+  input {
+    touch-action: manipulation;
+  }
+
   @media print {
     /* Hide screen chrome completely */
     #main-navbar,

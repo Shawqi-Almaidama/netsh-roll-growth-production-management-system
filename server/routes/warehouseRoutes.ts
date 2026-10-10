@@ -1,6 +1,12 @@
 import { Router, Response } from 'express';
 import { db } from '../db.js';
-import { authenticate, requireRoles, AuthenticatedRequest, createNotification } from '../auth.js';
+import {
+  authenticate,
+  requireRoles,
+  AuthenticatedRequest,
+  createNotification,
+  resolveLowStockNotificationsIfRestocked
+} from '../auth.js';
 
 const router = Router();
 
@@ -234,6 +240,11 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ADMIN')
     });
 
     db.exec('COMMIT;');
+
+    // Check if any restocked products are now above min_stock_alert and resolve active low-stock alerts
+    for (const it of itemsToProcess) {
+      resolveLowStockNotificationsIfRestocked(it.productId);
+    }
 
     // Trigger Notification to Management
     createNotification({

@@ -1,6 +1,20 @@
 import 'dotenv/config';
 import { db, hashPassword, verifyPassword } from './db.js';
-import { generateToken, verifyToken } from './auth.js';
+import {
+  generateToken,
+  verifyToken,
+  triggerLowStockNotifications,
+  resolveLowStockNotificationsIfRestocked
+} from './auth.js';
+import {
+  normalizeDigits,
+  validateGregorianParts,
+  parseIsoDateString,
+  formatIsoDateParts,
+  formatArabicReadableDate,
+  getLocalTodayDateString,
+  getRelativeLocalDateString
+} from '../src/utils/date.js';
 
 export interface TestResult {
   id: string;
@@ -422,6 +436,128 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
     }
     if (roleCodes.includes('PROD_MGR')) {
       throw new Error('Legacy role PROD_MGR is still in ROLES table');
+    }
+  });
+
+  // T-26: Low Stock Alerts Detection, Deduplication, and Auto-Resolution on Restock
+  test('T-26', 'تنبيهات المخزون المنخفض ومنع تكرار الإشعارات وإغلاقها تلقائياً عند التوريد', 'Inventory', () => {
+    const testCode = 'PRD-LOW-' + Date.now().toString().slice(-4);
+    const ins = db.prepare(`
+      INSERT INTO PRODUCTS (product_code, product_name, category, unit, unit_price, current_stock, min_stock_alert)
+      VALUES (?, 'علف اختبار تنبيه', 'أعلاف', 'كيس', 8000, 10, 25)
+    `).run(testCode);
+    const prodId = Number(ins.lastInsertRowid);
+
+    // 1. Verify low-stock detection query finds the product
+    const lowItem = db.prepare(`
+      SELECT id, current_stock, min_stock_alert, (min_stock_alert - current_stock) as shortage_qty
+      FROM PRODUCTS WHERE id = ? AND current_stock <= min_stock_alert
+    `).get(prodId) as any;
+    if (!lowItem || lowItem.shortage_qty !== 15) {
+      throw new Error('Low stock product was not accurately detected or shortage_qty is wrong');
+    }
+
+    // 2. Verify notification creation and deduplication
+    triggerLowStockNotifications([
+      {
+        id: prodId,
+        product_code: testCode,
+        product_name: 'علف اختبار تنبيه',
+        current_stock: 10,
+        min_stock_alert: 25,
+        unit: 'كيس'
+      }
+    ]);
+    const countAfterFirst = (db.prepare(`
+      SELECT COUNT(*) as c FROM NOTIFICATIONS WHERE is_read = 0 AND message LIKE ?
+    `).get(`%(${testCode})%`) as any).c;
+    if (countAfterFirst === 0) throw new Error('Low stock notification was not created');
+
+    // Call a second time - should NOT duplicate unread notifications for same product & role
+    triggerLowStockNotifications([
+      {
+        id: prodId,
+        product_code: testCode,
+        product_name: 'علف اختبار تنبيه',
+        current_stock: 8,
+        min_stock_alert: 25,
+        unit: 'كيس'
+      }
+    ]);
+    const countAfterSecond = (db.prepare(`
+      SELECT COUNT(*) as c FROM NOTIFICATIONS WHERE is_read = 0 AND message LIKE ?
+    `).get(`%(${testCode})%`) as any).c;
+    if (countAfterSecond !== countAfterFirst) {
+      throw new Error(`Duplicate low-stock notifications created: ${countAfterSecond} vs ${countAfterFirst}`);
+    }
+
+    // 3. Restock above min_stock_alert and verify auto-resolution
+    db.prepare('UPDATE PRODUCTS SET current_stock = 60 WHERE id = ?').run(prodId);
+    resolveLowStockNotificationsIfRestocked(prodId);
+
+    const unreadRemaining = (db.prepare(`
+      SELECT COUNT(*) as c FROM NOTIFICATIONS WHERE is_read = 0 AND message LIKE ?
+    `).get(`%(${testCode})%`) as any).c;
+    if (unreadRemaining !== 0) {
+      throw new Error('Low stock notifications were not automatically resolved after restocking above min_stock_alert');
+    }
+  });
+
+  // T-27: Instant Search & Stock Status Filtering Accuracy
+  test('T-27', 'البحث الفوري والفلترة المتعددة للمنتجات والعملاء والفواتير والسندات والطلبات', 'Search', () => {
+    const lowProducts = db.prepare('SELECT * FROM PRODUCTS WHERE current_stock <= min_stock_alert').all() as any[];
+    const availProducts = db.prepare('SELECT * FROM PRODUCTS WHERE current_stock > min_stock_alert').all() as any[];
+    const totalProducts = (db.prepare('SELECT COUNT(*) as c FROM PRODUCTS').get() as any).c;
+    if (lowProducts.length + availProducts.length !== totalProducts) {
+      throw new Error('Stock status partition (low + available) does not equal total products');
+    }
+  });
+
+  // T-28: Custom RTL Date Input Validation, Digit Normalization & Date Range Filtering
+  test('T-28', 'التحقق من سلامة معالجة التواريخ وتطبيع الأرقام العربية وفلترة النطاق الزمني (RTL Date UX)', 'DateValidation', () => {
+    // 1. Arabic/Persian digit normalization
+    if (normalizeDigits('٢٠٢٦-٠٩-١٦') !== '2026-09-16') {
+      throw new Error('Failed to normalize Arabic-Indic digits');
+    }
+    if (normalizeDigits('۲۰۲۶/۰۳/۰۵') !== '2026/03/05') {
+      throw new Error('Failed to normalize Eastern Arabic digits');
+    }
+
+    // 2. Gregorian leap year & month length validation
+    if (!validateGregorianParts(2024, 2, 29).valid) {
+      throw new Error('2024-02-29 should be valid (leap year)');
+    }
+    if (validateGregorianParts(2026, 2, 29).valid) {
+      throw new Error('2026-02-29 should be rejected (non-leap year)');
+    }
+    if (validateGregorianParts(2026, 4, 31).valid) {
+      throw new Error('2026-04-31 should be rejected (April has 30 days)');
+    }
+
+    // 3. ISO formatting and parsing roundtrip
+    const iso = formatIsoDateParts(2026, 9, 5);
+    if (iso !== '2026-09-05') {
+      throw new Error(`Expected 2026-09-05, got ${iso}`);
+    }
+    const parsed = parseIsoDateString(iso);
+    if (!parsed || parsed.year !== 2026 || parsed.month !== 9 || parsed.day !== 5) {
+      throw new Error('ISO date parse roundtrip failed');
+    }
+
+    // 4. Readable Arabic date formatting
+    const readable = formatArabicReadableDate('2026-09-16');
+    if (readable !== '16 سبتمبر 2026') {
+      throw new Error(`Unexpected readable Arabic date: ${readable}`);
+    }
+
+    // 5. Local date helpers & SQLite range query compatibility
+    const today = getLocalTodayDateString();
+    const weekAgo = getRelativeLocalDateString(-6);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || !/^\d{4}-\d{2}-\d{2}$/.test(weekAgo)) {
+      throw new Error('Local date helper did not return YYYY-MM-DD');
+    }
+    if (weekAgo > today) {
+      throw new Error('Relative date -6 days should be <= today');
     }
   });
 

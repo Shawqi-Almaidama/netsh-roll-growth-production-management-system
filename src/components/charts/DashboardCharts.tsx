@@ -152,11 +152,11 @@ export const VerticalBarChart: React.FC<{
   const barWidth = Math.min(48, Math.max(16, slotWidth * 0.55));
 
   return (
-    <div className="relative w-full" style={{ height }}>
+    <div className="relative w-full overflow-x-auto" style={{ height }}>
       <svg
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-        className="w-full h-full select-none"
-        preserveAspectRatio="none"
+        className="w-full min-w-[420px] h-full select-none"
+        preserveAspectRatio="xMidYMid meet"
       >
         {/* Horizontal grid lines & Y-axis labels */}
         {yTicks.map((tickVal, i) => {
@@ -387,11 +387,11 @@ export const TrendLineAreaChart: React.FC<{
   }
 
   return (
-    <div className="relative w-full" style={{ height }}>
+    <div className="relative w-full overflow-x-auto" style={{ height }}>
       <svg
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-        className="w-full h-full select-none"
-        preserveAspectRatio="none"
+        className="w-full min-w-[420px] h-full select-none"
+        preserveAspectRatio="xMidYMid meet"
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -583,12 +583,13 @@ export const ComparisonBarChart: React.FC<{
         </div>
       </div>
 
-      <svg
-        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-        className="w-full h-full select-none"
-        preserveAspectRatio="none"
-      >
-        {/* Grid lines */}
+      <div className="w-full overflow-x-auto">
+        <svg
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+          className="w-full min-w-[420px] h-full select-none"
+          preserveAspectRatio="xMidYMid meet"
+        >
+          {/* Grid lines */}
         {yTicks.map((tickVal, i) => {
           const y = padTop + chartHeight - (tickVal / maxVal) * chartHeight;
           return (
@@ -691,7 +692,8 @@ export const ComparisonBarChart: React.FC<{
             </g>
           );
         })}
-      </svg>
+        </svg>
+      </div>
 
       {/* Floating Tooltip */}
       {hoveredIdx !== null && (

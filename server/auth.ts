@@ -158,3 +158,88 @@ export function createNotification(params: {
     console.error('Error creating notification:', e);
   }
 }
+
+// Helper to create deduplicated low-stock notifications for relevant operational roles
+export function triggerLowStockNotifications(
+  products: Array<{
+    id?: number;
+    product_code?: string;
+    product_name: string;
+    current_stock: number;
+    min_stock_alert: number;
+    unit?: string;
+  }>,
+  contextRef?: string
+) {
+  try {
+    const lowItems = products.filter(p => Number(p.current_stock) <= Number(p.min_stock_alert));
+    if (lowItems.length === 0) return;
+
+    const targetRoles = ['WAREHOUSE_KEEPER', 'PROD_MANAGER', 'SALES_OFFICER', 'ADMIN'];
+    const summaryText = lowItems
+      .map(
+        p =>
+          `${p.product_name}${p.product_code ? ` (${p.product_code})` : ''}: الرصيد الحالي ${p.current_stock} ${p.unit || 'وحدة'} / حد الإنذار ${p.min_stock_alert} ${p.unit || 'وحدة'}`
+      )
+      .join(' — ');
+
+    const hasZeroStock = lowItems.some(p => Number(p.current_stock) <= 0);
+    const notifType: 'WARNING' | 'ALERT' = hasZeroStock ? 'ALERT' : 'WARNING';
+    const title = hasZeroStock
+      ? 'تنبيه حرج: نفاد أو انخفاض حاد في مخزون المنتجات'
+      : 'تنبيه: انخفاض مخزون بعض المنتجات للحد الأدنى';
+    const message = contextRef
+      ? `بعد العملية (${contextRef})، وصلت الأصناف التالية إلى الحد الأدنى أو دونه: ${summaryText}`
+      : `الأصناف التالية وصلت إلى حد الإنذار الأدنى للمخزون وتحتاج إلى توريد: ${summaryText}`;
+
+    const checkUnreadProductStmt = db.prepare(`
+      SELECT id FROM NOTIFICATIONS
+      WHERE role_target = ? AND is_read = 0
+        AND (title LIKE '%انخفاض مخزون%' OR title LIKE '%مخزون المنتجات%')
+        AND message LIKE ?
+      LIMIT 1
+    `);
+
+    for (const role of targetRoles) {
+      // Check if all lowItems already have an active unread notification for this role
+      const unnotifiedItems = lowItems.filter(p => {
+        const key = p.product_code ? `%(${p.product_code})%` : `%${p.product_name}%`;
+        return !checkUnreadProductStmt.get(role, key);
+      });
+
+      if (unnotifiedItems.length > 0) {
+        createNotification({
+          roleTarget: role,
+          title,
+          message,
+          type: notifType,
+          link: '/products-customers'
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Error triggering low stock notifications:', e);
+  }
+}
+
+// Helper to resolve unread low-stock notifications when a product is restocked above min_stock_alert
+export function resolveLowStockNotificationsIfRestocked(productId: number) {
+  try {
+    const prod = db
+      .prepare('SELECT id, product_code, product_name, current_stock, min_stock_alert FROM PRODUCTS WHERE id = ?')
+      .get(productId) as any;
+    if (!prod) return;
+
+    if (Number(prod.current_stock) > Number(prod.min_stock_alert)) {
+      db.prepare(`
+        UPDATE NOTIFICATIONS
+        SET is_read = 1
+        WHERE is_read = 0
+          AND (title LIKE '%انخفاض مخزون%' OR title LIKE '%مخزون المنتجات%')
+          AND (message LIKE ? OR message LIKE ?)
+      `).run(`%${prod.product_name}%`, `%${prod.product_code}%`);
+    }
+  } catch (e) {
+    console.error('Error resolving low stock notifications:', e);
+  }
+}

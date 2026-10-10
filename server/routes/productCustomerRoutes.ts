@@ -1,38 +1,88 @@
 import { Router, Response } from 'express';
 import { db } from '../db.js';
-import { authenticate, requireRoles, AuthenticatedRequest } from '../auth.js';
+import {
+  authenticate,
+  requireRoles,
+  AuthenticatedRequest,
+  triggerLowStockNotifications,
+  resolveLowStockNotificationsIfRestocked
+} from '../auth.js';
 
 const router = Router();
 
 // -------------------------------------------------------------
-// PRODUCTS (FR-08, UC-09)
+// PRODUCTS (FR-08, UC-09) & LOW STOCK ALERTS
 // -------------------------------------------------------------
 router.get('/products', authenticate, requireRoles('SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
-  const { category, search } = req.query;
+  const { category, search, lowStockOnly } = req.query;
 
   let query = `
     SELECT p.id, p.product_code, p.product_name, p.category, p.unit, p.unit_price,
            p.current_stock, p.min_stock_alert, p.description,
-           (p.current_stock <= p.min_stock_alert) as is_low_stock
+           CASE WHEN p.current_stock <= p.min_stock_alert THEN 1 ELSE 0 END as is_low_stock,
+           CASE WHEN p.current_stock <= 0 THEN 1 ELSE 0 END as is_out_of_stock,
+           CASE WHEN p.current_stock > p.min_stock_alert AND p.current_stock <= (p.min_stock_alert * 1.25) THEN 1 ELSE 0 END as is_near_low_stock,
+           CASE WHEN p.min_stock_alert > p.current_stock THEN ROUND(p.min_stock_alert - p.current_stock, 2) ELSE 0 END as deficit_qty
     FROM PRODUCTS p
     WHERE 1=1
   `;
   const params: any[] = [];
 
-  if (category) {
+  if (category && category !== 'all') {
     query += ' AND p.category = ?';
     params.push(String(category));
   }
+  if (lowStockOnly === 'true' || lowStockOnly === '1') {
+    query += ' AND p.current_stock <= p.min_stock_alert';
+  }
   if (search) {
-    query += ' AND (p.product_code LIKE ? OR p.product_name LIKE ? OR p.description LIKE ?)';
-    const s = `%${search}%`;
-    params.push(s, s, s);
+    query += ' AND (p.product_code LIKE ? OR p.product_name LIKE ? OR p.category LIKE ? OR p.unit LIKE ? OR p.description LIKE ?)';
+    const s = `%${String(search).trim()}%`;
+    params.push(s, s, s, s, s);
   }
 
-  query += ' ORDER BY p.category, p.product_name';
+  query += ' ORDER BY (p.current_stock <= p.min_stock_alert) DESC, p.category, p.product_name';
 
   const products = db.prepare(query).all(...params);
   res.json({ success: true, products });
+});
+
+// Dedicated Low Stock Alerts Endpoint
+router.get('/low-stock-alerts', authenticate, requireRoles('SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+  const allProducts = db.prepare(`
+    SELECT p.id, p.product_code, p.product_name, p.category, p.unit, p.unit_price,
+           p.current_stock, p.min_stock_alert, p.description,
+           CASE WHEN p.current_stock <= p.min_stock_alert THEN 1 ELSE 0 END as is_low_stock,
+           CASE WHEN p.current_stock <= 0 THEN 1 ELSE 0 END as is_out_of_stock,
+           CASE WHEN p.current_stock > p.min_stock_alert AND p.current_stock <= (p.min_stock_alert * 1.25) THEN 1 ELSE 0 END as is_near_low_stock,
+           CASE WHEN p.min_stock_alert > p.current_stock THEN ROUND(p.min_stock_alert - p.current_stock, 2) ELSE 0 END as deficit_qty
+    FROM PRODUCTS p
+    ORDER BY p.current_stock ASC, p.product_name ASC
+  `).all() as any[];
+
+  const lowStockProducts = allProducts
+    .filter(p => Number(p.current_stock) <= Number(p.min_stock_alert))
+    .map(p => ({
+      ...p,
+      severity: Number(p.current_stock) <= 0 || Number(p.current_stock) <= Number(p.min_stock_alert) * 0.5 ? 'CRITICAL' : 'WARNING',
+      recommended_restock_qty: Math.max(Number(p.min_stock_alert) * 2 - Number(p.current_stock), Number(p.min_stock_alert) || 10)
+    }));
+
+  const nearLowStockProducts = allProducts.filter(
+    p => Number(p.current_stock) > Number(p.min_stock_alert) && Number(p.current_stock) <= Number(p.min_stock_alert) * 1.25
+  );
+
+  res.json({
+    success: true,
+    lowStockProducts,
+    nearLowStockProducts,
+    summary: {
+      totalProductsCount: allProducts.length,
+      lowStockCount: lowStockProducts.length,
+      outOfStockCount: lowStockProducts.filter(p => Number(p.current_stock) <= 0).length,
+      nearLowStockCount: nearLowStockProducts.length
+    }
+  });
 });
 
 router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (req, res) => {
@@ -69,6 +119,23 @@ router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
     description || null
   );
 
+  const newProdId = Number(result.lastInsertRowid);
+  if (numStock <= numAlert) {
+    triggerLowStockNotifications(
+      [
+        {
+          id: newProdId,
+          product_code: String(productCode).trim(),
+          product_name: String(productName).trim(),
+          current_stock: numStock,
+          min_stock_alert: numAlert,
+          unit: String(unit).trim()
+        }
+      ],
+      `إضافة منتج برصيد ابتدائي تحت حد الإنذار: ${String(productCode).trim()}`
+    );
+  }
+
   res.status(201).json({ success: true, message: 'تم إضافة المنتج بنجاح', productId: result.lastInsertRowid });
 });
 
@@ -80,7 +147,7 @@ router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN')
 
   const { productName, category, unit, unitPrice, minStockAlert, description } = req.body;
 
-  const current = db.prepare('SELECT id FROM PRODUCTS WHERE id = ?').get(productId);
+  const current = db.prepare('SELECT * FROM PRODUCTS WHERE id = ?').get(productId) as any;
   if (!current) {
     return res.status(404).json({ success: false, message: 'المنتج غير موجود' });
   }
@@ -108,11 +175,20 @@ router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN')
     unit || null,
     unitPrice !== undefined ? Number(unitPrice) : null,
     minStockAlert !== undefined ? Number(minStockAlert) : null,
-    description || null,
+    description !== undefined ? description : null,
     productId
   );
 
-  res.json({ success: true, message: 'تم تحديث بيانات المنتج بنجاح' });
+  const updated = db.prepare('SELECT * FROM PRODUCTS WHERE id = ?').get(productId) as any;
+  if (updated) {
+    if (Number(updated.current_stock) <= Number(updated.min_stock_alert)) {
+      triggerLowStockNotifications([updated], `تحديث حد الإنذار للمنتج ${updated.product_code}`);
+    } else {
+      resolveLowStockNotificationsIfRestocked(productId);
+    }
+  }
+
+  res.json({ success: true, message: 'تم تحديث بيانات المنتج بنجاح', product: updated });
 });
 
 // -------------------------------------------------------------
@@ -132,9 +208,9 @@ router.get('/customers', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT
   const params: any[] = [];
 
   if (search) {
-    query += ' AND (c.customer_code LIKE ? OR c.customer_name LIKE ? OR c.phone LIKE ?)';
-    const s = `%${search}%`;
-    params.push(s, s, s);
+    query += ' AND (c.customer_code LIKE ? OR c.customer_name LIKE ? OR c.phone LIKE ? OR c.address LIKE ? OR c.commercial_reg LIKE ? OR c.tax_number LIKE ?)';
+    const s = `%${String(search).trim()}%`;
+    params.push(s, s, s, s, s, s);
   }
 
   query += ' ORDER BY c.customer_name ASC';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, LogOut, Sprout, Menu } from 'lucide-react';
+import { Bell, LogOut, Sprout, Menu, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { api } from '../../api.js';
 
@@ -15,11 +15,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   onToggleMobileSidebar
 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, hasRole } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [lowStockCount, setLowStockCount] = useState(0);
+
+  const canMonitorStock = hasRole('ADMIN', 'PROD_MANAGER', 'SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT');
 
   useEffect(() => {
-    const checkNotifications = async () => {
+    const checkNotificationsAndStock = async () => {
       try {
         const res = await api.getNotifications();
         if (res.success) {
@@ -28,11 +31,21 @@ export const Navbar: React.FC<NavbarProps> = ({
       } catch {
         // silent fail
       }
+      if (canMonitorStock) {
+        try {
+          const stockRes = await api.getLowStockAlerts();
+          if (stockRes.success) {
+            setLowStockCount(stockRes.count || 0);
+          }
+        } catch {
+          // silent fail
+        }
+      }
     };
-    checkNotifications();
-    const interval = setInterval(checkNotifications, 15000);
+    checkNotificationsAndStock();
+    const interval = setInterval(checkNotificationsAndStock, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [canMonitorStock]);
 
   return (
     <header
@@ -70,8 +83,29 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Right Controls: Notifications, Current User Info, Logout */}
+      {/* Right Controls: Low Stock Indicator, Notifications, Current User Info, Logout */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {canMonitorStock && lowStockCount > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              if (hasRole('ACCOUNTANT')) {
+                onNavigate('reports');
+              } else {
+                onNavigate('products-customers');
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 text-xs font-bold transition-colors"
+            title="تنبيهات المخزون المنخفض - اضغط للانتقال إلى المخزون"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+            <span className="hidden md:inline">تنبيه مخزون:</span>
+            <span className="font-mono font-black bg-rose-600 text-white px-1.5 py-0.2 rounded text-[10px]">
+              {lowStockCount}
+            </span>
+          </button>
+        )}
+
         {/* Notifications Bell */}
         <button
           type="button"

@@ -101,6 +101,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
   const roleCode = user?.roleCode;
   const { kpis } = data || { kpis: {} };
+  const dashboardLowStockList: any[] = data?.lowStockAlerts || data?.lowStockItems || [];
+  const canSeeLowStockBanner = hasRole('ADMIN', 'PROD_MANAGER', 'SALES_OFFICER', 'WAREHOUSE_KEEPER') && dashboardLowStockList.length > 0;
 
   const statusArabic: Record<string, { label: string; variant: 'slate' | 'amber' | 'blue' | 'emerald' | 'rose' }> = {
     DRAFT: { label: 'مسودة', variant: 'slate' },
@@ -114,10 +116,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   return (
     <div id="dashboard-view" className="space-y-6 pb-12" dir="rtl">
       {/* Welcome & Role Context Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-black text-slate-900">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-black text-slate-900">
               أهلاً بك، {user?.fullName}
             </h1>
             <Badge variant="emerald">{user?.roleNameAr || 'مدير النظام'}</Badge>
@@ -208,6 +210,93 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* Global Low Stock Alert Banner for Inventory-Responsible Roles */}
+      {canSeeLowStockBanner && (
+        <div
+          id="dashboard-low-stock-alert-banner"
+          className="bg-amber-50 border border-amber-300 rounded-2xl p-4 shadow-xs"
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-black text-amber-950">
+                    تنبيهات المخزون المنخفض والحرج ({dashboardLowStockList.length} أصناف)
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                    يتطلب متابعة وتوريد
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  وصلت أرصدة الأصناف التالية إلى الحد الأدنى للتنبيه أو دونه، يرجى مراجعة الأرصدة أو إصدار سند توريد مخزني.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => onNavigate('products-customers')}
+                className="px-3 py-1.5 rounded-lg bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition-colors"
+              >
+                فحص دليل الأصناف
+              </button>
+              {hasRole('WAREHOUSE_KEEPER', 'ADMIN') && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('warehouse')}
+                  className="px-3 py-1.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold transition-colors"
+                >
+                  توريد للمستودع
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 mt-3 pt-3 border-t border-amber-200/80">
+            {dashboardLowStockList.map((item: any) => {
+              const isOut = Number(item.current_stock) <= 0;
+              const shortage = Math.max(0, Number(item.min_stock_alert) - Number(item.current_stock));
+              return (
+                <div
+                  key={item.id}
+                  className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
+                    isOut ? 'bg-rose-50/90 border-rose-300' : 'bg-white border-amber-200'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-slate-900">{item.product_name}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          isOut ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-900'
+                        }`}
+                      >
+                        {isOut ? 'نفد المخزون' : 'مخزون منخفض'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                      {item.product_code} • الحد الأدنى: {item.min_stock_alert} {item.unit}
+                    </p>
+                  </div>
+                  <div className="text-left">
+                    <span className={`font-mono font-black text-sm ${isOut ? 'text-rose-700' : 'text-amber-800'}`}>
+                      {item.current_stock} {item.unit}
+                    </span>
+                    <span className="block text-[10px] text-rose-700 font-semibold">
+                      النقص: {shortage} {item.unit}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ------------------------------------------------------------- */}
       {/* 1. ADMIN DASHBOARD (شوقي الميدمة — مدير النظام) */}
       {/* ------------------------------------------------------------- */}
@@ -227,11 +316,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* Segmented Period Buttons */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+            <div className="grid grid-cols-2 sm:flex items-center gap-1 bg-slate-100 p-1 rounded-xl sm:rounded-lg w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setSelectedPeriod('today')}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 sm:py-1 rounded-lg sm:rounded-md text-xs font-bold transition-all text-center ${
                   selectedPeriod === 'today'
                     ? 'bg-white text-emerald-800 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -242,7 +331,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setSelectedPeriod('7days')}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 sm:py-1 rounded-lg sm:rounded-md text-xs font-bold transition-all text-center ${
                   selectedPeriod === '7days'
                     ? 'bg-white text-emerald-800 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -253,7 +342,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setSelectedPeriod('30days')}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 sm:py-1 rounded-lg sm:rounded-md text-xs font-bold transition-all text-center ${
                   selectedPeriod === '30days'
                     ? 'bg-white text-emerald-800 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -264,7 +353,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setSelectedPeriod('all')}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 sm:py-1 rounded-lg sm:rounded-md text-xs font-bold transition-all text-center ${
                   selectedPeriod === 'all'
                     ? 'bg-white text-emerald-800 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -587,38 +676,62 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             )}
 
             {/* Sales Invoices List */}
-            <div className="overflow-x-auto">
+            <div>
               {(!data.recentSales || data.recentSales.length === 0) ? (
                 <div className="py-8 text-center text-slate-400 text-xs">
                   لا توجد فواتير مبيعات مسجلة للفترة المحددة
                 </div>
               ) : (
-                <table className="w-full text-xs text-right">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-slate-400 font-medium">
-                      <th className="py-2 px-3">رقم الفاتورة</th>
-                      <th className="py-2 px-3">اسم العميل</th>
-                      <th className="py-2 px-3">تاريخ الفاتورة</th>
-                      <th className="py-2 px-3">المبلغ الإجمالي</th>
-                      <th className="py-2 px-3">حالة السداد</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
+                <>
+                  {/* Mobile cards (md:hidden) */}
+                  <div className="md:hidden space-y-2.5">
                     {data.recentSales?.map((inv: any) => (
-                      <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{inv.invoice_no}</td>
-                        <td className="py-2.5 px-3 font-medium text-slate-800">{inv.customer_name}</td>
-                        <td className="py-2.5 px-3 text-slate-500">{inv.invoice_date}</td>
-                        <td className="py-2.5 px-3 font-bold text-emerald-800">{formatCurrency(inv.total_amount)}</td>
-                        <td className="py-2.5 px-3">
+                      <div key={`mob-sale-${inv.id}`} className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between gap-2 text-xs">
+                        <div>
+                          <span className="font-mono font-bold text-slate-900 block">{inv.invoice_no}</span>
+                          <span className="text-[11px] font-medium text-slate-700 block mt-0.5">{inv.customer_name}</span>
+                          <span className="text-[10px] font-mono text-slate-400 block">{inv.invoice_date}</span>
+                        </div>
+                        <div className="text-left shrink-0">
+                          <span className="font-mono font-black text-emerald-800 block mb-1">{formatCurrency(inv.total_amount)}</span>
                           <Badge variant={inv.payment_status === 'PAID' ? 'emerald' : 'amber'}>
                             {inv.payment_status === 'PAID' ? 'مسددة بالكامل' : 'قيد السداد'}
                           </Badge>
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+
+                  {/* Desktop table (hidden md:block) */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-xs text-right">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-400 font-medium">
+                          <th className="py-2 px-3 whitespace-nowrap">رقم الفاتورة</th>
+                          <th className="py-2 px-3">اسم العميل</th>
+                          <th className="py-2 px-3 whitespace-nowrap">تاريخ الفاتورة</th>
+                          <th className="py-2 px-3 whitespace-nowrap">المبلغ الإجمالي</th>
+                          <th className="py-2 px-3 whitespace-nowrap">حالة السداد</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {data.recentSales?.map((inv: any) => (
+                          <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">{inv.invoice_no}</td>
+                            <td className="py-2.5 px-3 font-medium text-slate-800">{inv.customer_name}</td>
+                            <td className="py-2.5 px-3 font-mono text-slate-500 whitespace-nowrap">{inv.invoice_date}</td>
+                            <td className="py-2.5 px-3 font-bold text-emerald-800 whitespace-nowrap">{formatCurrency(inv.total_amount)}</td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <Badge variant={inv.payment_status === 'PAID' ? 'emerald' : 'amber'}>
+                                {inv.payment_status === 'PAID' ? 'مسددة بالكامل' : 'قيد السداد'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -1271,29 +1384,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               </button>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Mobile cards for Accountant Invoices (md:hidden) */}
+            <div className="md:hidden space-y-2.5">
+              {data.recentInvoices?.map((inv: any) => (
+                <div key={`acc-mob-${inv.id}`} className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="font-mono font-bold text-slate-900 block">{inv.invoice_no}</span>
+                      <span className="font-bold text-slate-800 block mt-0.5">{inv.customer_name}</span>
+                    </div>
+                    <Badge variant={inv.payment_status === 'PAID' ? 'emerald' : 'amber'}>
+                      {inv.payment_status === 'PAID' ? 'مسددة' : 'معلقة'}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200/60">
+                    <span className="font-mono">{inv.invoice_date}</span>
+                    <span className="font-mono font-black text-emerald-800">{formatCurrency(inv.total_amount)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-right text-xs">
                 <thead className="bg-slate-50 text-slate-700 border-y border-slate-100">
                   <tr>
-                    <th className="p-3 font-bold">رقم الفاتورة</th>
+                    <th className="p-3 font-bold whitespace-nowrap">رقم الفاتورة</th>
                     <th className="p-3 font-bold">اسم العميل</th>
-                    <th className="p-3 font-bold">التاريخ</th>
-                    <th className="p-3 font-bold">المجموع الفرعي</th>
-                    <th className="p-3 font-bold">الضريبة</th>
-                    <th className="p-3 font-bold">الإجمالي النهائي</th>
-                    <th className="p-3 font-bold">حالة السداد</th>
+                    <th className="p-3 font-bold whitespace-nowrap">التاريخ</th>
+                    <th className="p-3 font-bold whitespace-nowrap">المجموع الفرعي</th>
+                    <th className="p-3 font-bold whitespace-nowrap">الضريبة</th>
+                    <th className="p-3 font-bold whitespace-nowrap">الإجمالي النهائي</th>
+                    <th className="p-3 font-bold whitespace-nowrap">حالة السداد</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {data.recentInvoices?.map((inv: any) => (
                     <tr key={inv.id} className="hover:bg-slate-50/60">
-                      <td className="p-3 font-mono font-bold text-slate-900">{inv.invoice_no}</td>
+                      <td className="p-3 font-mono font-bold text-slate-900 whitespace-nowrap">{inv.invoice_no}</td>
                       <td className="p-3 font-semibold text-slate-900">{inv.customer_name}</td>
-                      <td className="p-3 font-mono text-slate-600">{inv.invoice_date}</td>
-                      <td className="p-3 font-mono font-medium">{formatCurrency(inv.subtotal)}</td>
-                      <td className="p-3 font-mono text-slate-500">{formatCurrency(inv.tax_amount)}</td>
-                      <td className="p-3 font-mono font-bold text-emerald-800">{formatCurrency(inv.total_amount)}</td>
-                      <td className="p-3">
+                      <td className="p-3 font-mono text-slate-600 whitespace-nowrap">{inv.invoice_date}</td>
+                      <td className="p-3 font-mono font-medium whitespace-nowrap">{formatCurrency(inv.subtotal)}</td>
+                      <td className="p-3 font-mono text-slate-500 whitespace-nowrap">{formatCurrency(inv.tax_amount)}</td>
+                      <td className="p-3 font-mono font-bold text-emerald-800 whitespace-nowrap">{formatCurrency(inv.total_amount)}</td>
+                      <td className="p-3 whitespace-nowrap">
                         <Badge variant={inv.payment_status === 'PAID' ? 'emerald' : 'amber'}>
                           {inv.payment_status === 'PAID' ? 'مسددة' : 'معلقة'}
                         </Badge>

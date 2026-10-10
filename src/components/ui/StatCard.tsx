@@ -11,16 +11,16 @@ interface StatCardProps {
     value: string;
     isPositive: boolean;
   };
-  colorTheme?: 'emerald' | 'blue' | 'amber' | 'purple' | 'rose' | 'slate';
+  colorTheme: 'emerald' | 'amber' | 'blue' | 'rose' | 'purple' | 'slate';
 }
 
-const colorMap = {
-  emerald: { bg: 'bg-emerald-50 text-emerald-700 border-emerald-100', iconBg: 'bg-emerald-600 text-white' },
-  blue: { bg: 'bg-blue-50 text-blue-700 border-blue-100', iconBg: 'bg-blue-600 text-white' },
-  amber: { bg: 'bg-amber-50 text-amber-700 border-amber-100', iconBg: 'bg-amber-600 text-white' },
-  purple: { bg: 'bg-purple-50 text-purple-700 border-purple-100', iconBg: 'bg-purple-600 text-white' },
-  rose: { bg: 'bg-rose-50 text-rose-700 border-rose-100', iconBg: 'bg-rose-600 text-white' },
-  slate: { bg: 'bg-slate-50 text-slate-700 border-slate-200', iconBg: 'bg-slate-700 text-white' }
+const themeClasses = {
+  emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  amber: 'bg-amber-50 text-amber-700 border-amber-200',
+  blue: 'bg-blue-50 text-blue-700 border-blue-200',
+  rose: 'bg-rose-50 text-rose-700 border-rose-200',
+  purple: 'bg-purple-50 text-purple-700 border-purple-200',
+  slate: 'bg-slate-100 text-slate-700 border-slate-200'
 };
 
 export const StatCard: React.FC<StatCardProps> = ({
@@ -30,33 +30,37 @@ export const StatCard: React.FC<StatCardProps> = ({
   subtitle,
   icon: Icon,
   trend,
-  colorTheme = 'slate'
+  colorTheme
 }) => {
-  const theme = colorMap[colorTheme] || colorMap.slate;
-
   return (
     <div
       id={id}
-      className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs hover:shadow-md transition-shadow duration-200"
+      className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs flex items-start justify-between gap-3 transition-all hover:shadow-md"
     >
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">{title}</p>
-          <div className="text-2xl font-bold text-slate-900 tracking-tight">{value}</div>
-          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
-        </div>
-        <div className={`w-11 h-11 rounded-lg flex items-center justify-center shrink-0 ${theme.iconBg}`}>
-          <Icon className="w-5 h-5" />
-        </div>
+      <div className="space-y-1 min-w-0 flex-1">
+        <p className="text-xs font-medium text-slate-500 truncate">{title}</p>
+        <h3 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight break-words">
+          {value}
+        </h3>
+        {subtitle && (
+          <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed">{subtitle}</p>
+        )}
+        {trend && (
+          <div className="flex items-center gap-1 pt-1">
+            <span
+              className={`text-xs font-semibold ${
+                trend.isPositive ? 'text-emerald-600' : 'text-rose-600'
+              }`}
+            >
+              {trend.isPositive ? '+' : ''}
+              {trend.value}
+            </span>
+          </div>
+        )}
       </div>
-      {trend && (
-        <div className="mt-3 pt-3 border-t border-slate-100 flex items-center text-xs">
-          <span className={`font-semibold ${trend.isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {trend.value}
-          </span>
-          <span className="text-slate-400 mr-1.5">مقارنة بالفترة السابقة</span>
-        </div>
-      )}
+      <div className={`p-2.5 sm:p-3 rounded-xl border shrink-0 ${themeClasses[colorTheme]}`}>
+        <Icon className="w-5 h-5 sm:w-6 sm:h-6" />
+      </div>
     </div>
   );
 };
