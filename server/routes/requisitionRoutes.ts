@@ -194,14 +194,24 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: Authen
     if (!f) return res.status(400).json({ success: false, message: 'المزرعة المحددة غير موجودة' });
   }
 
+  const sup = req.user!.roleCode === 'SUPERVISOR'
+    ? (db.prepare('SELECT id FROM SUPERVISORS WHERE user_id = ?').get(req.user!.id) as { id: number } | undefined)
+    : undefined;
+
   if (houseId !== undefined && houseId !== null && houseId !== '') {
-    const h = db.prepare('SELECT id FROM HOUSES WHERE id = ?').get(Number(houseId));
+    const h = db.prepare('SELECT id, supervisor_id FROM HOUSES WHERE id = ?').get(Number(houseId)) as any;
     if (!h) return res.status(400).json({ success: false, message: 'الهنجر المحدد غير موجود' });
+    if (req.user!.roleCode === 'SUPERVISOR' && (!sup || h.supervisor_id !== sup.id)) {
+      return res.status(403).json({ success: false, message: 'غير مصرح لك بإنشاء طلب احتياج لهنجر غير مسند إليك' });
+    }
   }
 
   if (flockId !== undefined && flockId !== null && flockId !== '') {
-    const fl = db.prepare('SELECT id FROM FLOCKS WHERE id = ?').get(Number(flockId));
+    const fl = db.prepare('SELECT fl.id, h.supervisor_id FROM FLOCKS fl JOIN HOUSES h ON fl.house_id = h.id WHERE fl.id = ?').get(Number(flockId)) as any;
     if (!fl) return res.status(400).json({ success: false, message: 'القطيع المحدد غير موجود' });
+    if (req.user!.roleCode === 'SUPERVISOR' && (!sup || fl.supervisor_id !== sup.id)) {
+      return res.status(403).json({ success: false, message: 'غير مصرح لك بإنشاء طلب احتياج لقطيع في هنجر غير مسند إليك' });
+    }
   }
 
   if (status && status !== 'DRAFT' && status !== 'SUBMITTED') {

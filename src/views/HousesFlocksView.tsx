@@ -201,32 +201,32 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          {hasRole('SUPERVISOR', 'PROD_MANAGER', 'ADMIN') && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setModalError(null);
-                  setIsHouseModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-colors shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>إضافة هنجر جديد</span>
-              </button>
+          {hasRole('PROD_MANAGER', 'ADMIN') && (
+            <button
+              type="button"
+              onClick={() => {
+                setModalError(null);
+                setIsHouseModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-colors shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إضافة هنجر جديد</span>
+            </button>
+          )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  setModalError(null);
-                  setIsFlockModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-colors shadow-xs"
-              >
-                <Egg className="w-4 h-4" />
-                <span>تسكين قطيع جديد</span>
-              </button>
-            </>
+          {hasRole('SUPERVISOR', 'PROD_MANAGER', 'ADMIN') && (
+            <button
+              type="button"
+              onClick={() => {
+                setModalError(null);
+                setIsFlockModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-colors shadow-xs"
+            >
+              <Egg className="w-4 h-4" />
+              <span>تسكين قطيع جديد</span>
+            </button>
           )}
         </div>
       </div>
@@ -490,11 +490,13 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
               className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50"
             >
               <option value="">اختر الهنجر...</option>
-              {houses.filter(h => !h.active_flock_id).map((h) => (
-                <option key={`flock-house-${h.id}`} value={h.id}>
-                  {h.house_name} ({h.house_code}) - {h.farm_name} [سعة: {h.capacity}]
-                </option>
-              ))}
+              {houses
+                .filter(h => !h.active_flock_id && !['CLEANING', 'MAINTENANCE', 'INACTIVE'].includes(h.current_status))
+                .map((h) => (
+                  <option key={`flock-house-${h.id}`} value={h.id}>
+                    {h.house_name} ({h.house_code}) - {h.farm_name} [سعة: {h.capacity}]
+                  </option>
+                ))}
             </select>
           </div>
 

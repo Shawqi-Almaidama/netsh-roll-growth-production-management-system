@@ -112,6 +112,7 @@ router.get('/receipts/:id', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCO
   receipt.items = [
     {
       product_id: receipt.product_id,
+      product_code: receipt.product_code,
       product_name: receipt.product_name,
       quantity_received: receipt.quantity,
       unit: receipt.unit,

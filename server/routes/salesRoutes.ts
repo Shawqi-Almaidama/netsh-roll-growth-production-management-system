@@ -28,9 +28,10 @@ router.get('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT'
   let query = `
     SELECT inv.id, inv.invoice_no, inv.customer_id, inv.user_id, inv.invoice_date,
            inv.subtotal, inv.discount, inv.tax_amount, inv.total_amount,
-           inv.payment_status, inv.notes, inv.created_at,
+           inv.payment_status, inv.payment_status as status, inv.notes, inv.created_at,
            c.customer_name, c.customer_code, c.phone as customer_phone,
-           u.full_name as issuer_name,
+           c.address as customer_address, c.tax_number as customer_tax,
+           u.full_name as issuer_name, u.full_name as created_by_name,
            (SELECT COUNT(*) FROM INVOICE_LINES il WHERE il.invoice_id = inv.id) as lines_count
     FROM SALES_INVOICES inv
     JOIN CUSTOMERS c ON inv.customer_id = c.id
@@ -78,9 +79,10 @@ router.get('/invoices/:id', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNT
 
   const invoice = db.prepare(`
     SELECT inv.*,
+           inv.payment_status as status,
            c.customer_name, c.customer_code, c.phone as customer_phone,
            c.address as customer_address, c.tax_number as customer_tax,
-           u.full_name as issuer_name
+           u.full_name as issuer_name, u.full_name as created_by_name
     FROM SALES_INVOICES inv
     JOIN CUSTOMERS c ON inv.customer_id = c.id
     JOIN USERS u ON inv.user_id = u.id

@@ -176,13 +176,15 @@ export interface Customer {
 export interface InvoiceLine {
   id?: number;
   invoice_id?: number;
-  productId: number;
+  productId?: number;
   product_id?: number;
   product_code?: string;
   product_name?: string;
   quantity: number;
-  unit_price: number;
-  line_total: number;
+  unitPrice?: number;
+  unit_price?: number;
+  lineTotal?: number;
+  line_total?: number;
   unit?: string;
   category?: string;
 }
@@ -200,16 +202,19 @@ export interface SalesInvoice {
   customer_tax?: string;
   user_id: number;
   issuer_name: string;
+  created_by_name?: string;
   invoice_date: string;
   subtotal: number;
   discount: number;
   tax_amount: number;
   total_amount: number;
   payment_status: 'PAID' | 'PENDING' | 'PARTIAL';
+  status?: 'PAID' | 'PENDING' | 'PARTIAL';
   notes?: string;
   created_at: string;
   lines_count?: number;
   lines?: InvoiceLine[];
+  items?: InvoiceLine[];
 }
 
 export interface Warehouse {
@@ -246,6 +251,7 @@ export interface WarehouseReceipt {
   created_at: string;
   items?: Array<{
     product_id: number;
+    product_code?: string;
     product_name: string;
     quantity_received: number;
     unit: string;

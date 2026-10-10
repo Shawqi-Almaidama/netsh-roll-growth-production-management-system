@@ -4,6 +4,11 @@ import { authenticate, requireRoles, AuthenticatedRequest, createNotification } 
 
 const router = Router();
 
+function getSupervisorRecordId(userId: number): number | null {
+  const row = db.prepare('SELECT id FROM SUPERVISORS WHERE user_id = ?').get(userId) as { id: number } | undefined;
+  return row ? row.id : null;
+}
+
 // -------------------------------------------------------------
 // FARMS (المزارع)
 // -------------------------------------------------------------
@@ -49,9 +54,12 @@ router.post('/farms', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req,
 // -------------------------------------------------------------
 // HOUSES (الهناجر) - FR-01, UC-02
 // -------------------------------------------------------------
-router.get('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.get('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  const isSupervisor = req.user!.roleCode === 'SUPERVISOR';
+  const supId = isSupervisor ? (getSupervisorRecordId(req.user!.id) ?? -1) : null;
+
   const houses = db.prepare(`
-    SELECT h.id, h.farm_id, h.house_code, h.house_name, h.house_type, h.capacity, h.current_status, h.notes,
+    SELECT h.id, h.farm_id, h.house_code, h.house_name, h.house_type, h.capacity, h.current_status, h.supervisor_id, h.notes,
            f.farm_name, f.farm_code,
            s.full_name as supervisor_name,
            fl.id as active_flock_id, fl.flock_code as active_flock_code, fl.breed as active_flock_breed,
@@ -64,13 +72,14 @@ router.get('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', '
       WHERE house_id = h.id AND status = 'ACTIVE'
       ORDER BY id DESC LIMIT 1
     )
+    ${isSupervisor ? 'WHERE h.supervisor_id = ?' : ''}
     GROUP BY h.id
     ORDER BY h.farm_id, h.house_code
-  `).all();
+  `).all(...(isSupervisor ? [supId] : []));
   res.json({ success: true, houses });
 });
 
-router.post('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.post('/houses', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { farmId, houseCode, houseName, houseType, capacity, supervisorId, notes } = req.body;
 
   if (!farmId || !houseCode || !houseName || !houseType || !capacity) {
@@ -100,7 +109,7 @@ router.post('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 
   res.status(201).json({ success: true, message: 'تم إضافة الهنجر بنجاح', houseId: result.lastInsertRowid });
 });
 
-router.put('/houses/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.put('/houses/:id', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req, res) => {
   const houseId = Number(req.params.id);
   if (!Number.isInteger(houseId) || houseId <= 0) {
     return res.status(400).json({ success: false, message: 'معرف الهنجر غير صالح' });
@@ -138,21 +147,25 @@ router.put('/houses/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER
 // -------------------------------------------------------------
 // FLOCKS (القطعان) - FR-01, UC-02
 // -------------------------------------------------------------
-router.get('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.get('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  const isSupervisor = req.user!.roleCode === 'SUPERVISOR';
+  const supId = isSupervisor ? (getSupervisorRecordId(req.user!.id) ?? -1) : null;
+
   const flocks = db.prepare(`
     SELECT fl.id, fl.house_id, fl.flock_code, fl.breed, fl.initial_count, fl.current_count,
            fl.total_mortality, fl.entry_date, fl.target_weight_g, fl.status, fl.notes,
-           h.house_name, h.house_code, h.house_type,
+           h.house_name, h.house_code, h.house_type, h.supervisor_id,
            f.farm_name, f.farm_code
     FROM FLOCKS fl
     JOIN HOUSES h ON fl.house_id = h.id
     JOIN FARMS f ON h.farm_id = f.id
+    ${isSupervisor ? 'WHERE h.supervisor_id = ?' : ''}
     ORDER BY fl.status ASC, fl.entry_date DESC
-  `).all();
+  `).all(...(isSupervisor ? [supId] : []));
   res.json({ success: true, flocks });
 });
 
-router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const { houseId, flockCode, breed, initialCount, entryDate, targetWeightG, notes } = req.body;
 
   if (!houseId || !flockCode || !breed || !initialCount || !entryDate) {
@@ -164,9 +177,21 @@ router.post('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 
     return res.status(400).json({ success: false, message: 'يجب أن يكون العدد الابتدائي عدداً صحيحاً موجباً أكبر من صفر' });
   }
 
-  const house = db.prepare('SELECT id, capacity FROM HOUSES WHERE id = ?').get(Number(houseId)) as any;
+  const house = db.prepare('SELECT id, capacity, current_status, supervisor_id FROM HOUSES WHERE id = ?').get(Number(houseId)) as any;
   if (!house) {
     return res.status(404).json({ success: false, message: 'الهنجر المحدد غير موجود' });
+  }
+
+  // Enforce supervisor assignment scope
+  if (req.user!.roleCode === 'SUPERVISOR') {
+    const supId = getSupervisorRecordId(req.user!.id);
+    if (!supId || house.supervisor_id !== supId) {
+      return res.status(403).json({ success: false, message: 'غير مصرح لك بتسكين قطيع في هنجر غير مسند إليك' });
+    }
+  }
+
+  if (['CLEANING', 'MAINTENANCE', 'INACTIVE'].includes(house.current_status)) {
+    return res.status(400).json({ success: false, message: 'الهنجر المحدد غير متاح للتسكين حالياً (في حالة تطهير أو صيانة أو غير نشط)' });
   }
 
   if (numInitialCount > house.capacity) {
@@ -224,7 +249,7 @@ router.put('/flocks/:id/status', authenticate, requireRoles('PROD_MANAGER', 'ADM
 // -------------------------------------------------------------
 // DAILY PRODUCTION (الإنتاج اليومي) - FR-02, UC-03
 // -------------------------------------------------------------
-router.get('/daily', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.get('/daily', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const { flockId, houseId, startDate, endDate } = req.query;
 
   let query = `
@@ -243,6 +268,12 @@ router.get('/daily', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'A
     WHERE 1=1
   `;
   const params: any[] = [];
+
+  if (req.user!.roleCode === 'SUPERVISOR') {
+    const supId = getSupervisorRecordId(req.user!.id) ?? -1;
+    query += ' AND h.supervisor_id = ?';
+    params.push(supId);
+  }
 
   if (flockId) {
     query += ' AND dp.flock_id = ?';
@@ -291,9 +322,21 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
     return res.status(400).json({ success: false, message: 'القطيع وتاريخ التسجيل حقلان إلزاميان' });
   }
 
-  const flock = db.prepare('SELECT id, house_id, current_count, total_mortality, flock_code, status FROM FLOCKS WHERE id = ?').get(Number(flockId)) as any;
+  const flock = db.prepare(`
+    SELECT fl.id, fl.house_id, fl.current_count, fl.total_mortality, fl.flock_code, fl.status, h.supervisor_id
+    FROM FLOCKS fl
+    JOIN HOUSES h ON fl.house_id = h.id
+    WHERE fl.id = ?
+  `).get(Number(flockId)) as any;
   if (!flock) {
     return res.status(404).json({ success: false, message: 'القطيع غير موجود' });
+  }
+
+  if (req.user!.roleCode === 'SUPERVISOR') {
+    const supId = getSupervisorRecordId(req.user!.id);
+    if (!supId || flock.supervisor_id !== supId) {
+      return res.status(403).json({ success: false, message: 'غير مصرح لك بتسجيل الإنتاج اليومي لقطيع في هنجر غير مسند إليك' });
+    }
   }
 
   if (flock.status !== 'ACTIVE') {

@@ -4,6 +4,7 @@ import {
   Plus,
   Search,
   Eye,
+  Printer,
   CheckCircle,
   Package,
   Calendar,
@@ -117,16 +118,26 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
     }
   };
 
-  const handleViewReceipt = async (id: number) => {
+  const handleViewReceipt = async (id: number, autoPrint = false) => {
     try {
       const res = await api.getWarehouseReceiptDetails(id);
       if (res.success) {
         setSelectedReceipt(res.receipt);
         setIsViewOpen(true);
+        if (autoPrint) {
+          setTimeout(() => {
+            window.print();
+          }, 150);
+        }
       }
     } catch (err) {
       console.error('Failed to load receipt details:', err);
     }
+  };
+
+  const handlePrintSelectedReceipt = () => {
+    if (!selectedReceipt) return;
+    window.print();
   };
 
   const filteredReceipts = receipts.filter(r => {
@@ -144,116 +155,133 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
     return true;
   });
 
+  const canPrintReceipt = hasRole('WAREHOUSE_KEEPER', 'PROD_MANAGER', 'ACCOUNTANT', 'ADMIN');
+
   return (
     <div id="warehouse-supply-view" className="space-y-6 pb-12" dir="rtl">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2">
-            {onBack && (
-              <button
-                type="button"
-                onClick={onBack}
-                className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors ml-1"
-                title="رجوع"
-              >
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            )}
-            <h1 className="text-xl font-black text-slate-900">
-              التوريد للمستودعات واستلام البضائع
-            </h1>
+      <div className="space-y-6 no-print">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+          <div>
+            <div className="flex items-center gap-2">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors ml-1"
+                  title="رجوع"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
+              <h1 className="text-xl font-black text-slate-900">
+                التوريد للمستودعات واستلام البضائع
+              </h1>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              توثيق سندات استلام البضائع وتحديث رصيد المستودع تلقائياً فور الاستلام
+            </p>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            توثيق سندات استلام البضائع وتحديث رصيد المستودع تلقائياً فور الاستلام
-          </p>
+
+          {hasRole('WAREHOUSE_KEEPER', 'ADMIN') && (
+            <button
+              type="button"
+              onClick={() => {
+                setCreateError(null);
+                setIsCreateOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>تسجيل سند استلام وتوريد جديد</span>
+            </button>
+          )}
         </div>
 
-        {hasRole('WAREHOUSE_KEEPER', 'ADMIN') && (
-          <button
-            type="button"
-            onClick={() => {
-              setCreateError(null);
-              setIsCreateOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>تسجيل سند استلام وتوريد جديد</span>
-          </button>
-        )}
-      </div>
+        {/* Filter Bar */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-4">
+          <div className="relative min-w-[280px]">
+            <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
+            <input
+              type="text"
+              value={searchKw}
+              onChange={(e) => setSearchKw(e.target.value)}
+              placeholder="البحث برقم السند، الصنف، المورد، المستودع..."
+              className="w-full text-xs pr-9 pl-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:ring-1 focus:ring-purple-500"
+            />
+          </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-4">
-        <div className="relative min-w-[280px]">
-          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
-          <input
-            type="text"
-            value={searchKw}
-            onChange={(e) => setSearchKw(e.target.value)}
-            placeholder="البحث برقم السند، الصنف، المورد، المستودع..."
-            className="w-full text-xs pr-9 pl-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:ring-1 focus:ring-purple-500"
-          />
+          <div className="text-xs text-slate-500 font-bold">
+            إجمالي سندات الاستلام: <span className="text-slate-900 font-mono">{filteredReceipts.length}</span>
+          </div>
         </div>
 
-        <div className="text-xs text-slate-500 font-bold">
-          إجمالي سندات الاستلام: <span className="text-slate-900 font-mono">{filteredReceipts.length}</span>
-        </div>
-      </div>
-
-      {/* Receipts Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-right text-xs">
-            <thead className="bg-slate-50 text-slate-700 border-b border-slate-100">
-              <tr>
-                <th className="py-3 px-4 font-bold">رقم السند</th>
-                <th className="py-3 px-4 font-bold">تاريخ الاستلام</th>
-                <th className="py-3 px-4 font-bold">المستودع</th>
-                <th className="py-3 px-4 font-bold">الصنف المستلم</th>
-                <th className="py-3 px-4 font-bold">الكمية المستلمة</th>
-                <th className="py-3 px-4 font-bold">المورد / المصدر</th>
-                <th className="py-3 px-4 font-bold">أمين المستودع المستلم</th>
-                <th className="py-3 px-4 font-bold">الحالة</th>
-                <th className="py-3 px-4 font-bold text-center">الإجراءات</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredReceipts.length === 0 ? (
+        {/* Receipts Table */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-xs">
+              <thead className="bg-slate-50 text-slate-700 border-b border-slate-100">
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400">
-                    لا توجد سندات استلام مطابقة
-                  </td>
+                  <th className="py-3 px-4 font-bold">رقم السند</th>
+                  <th className="py-3 px-4 font-bold">تاريخ الاستلام</th>
+                  <th className="py-3 px-4 font-bold">المستودع</th>
+                  <th className="py-3 px-4 font-bold">الصنف المستلم</th>
+                  <th className="py-3 px-4 font-bold">الكمية المستلمة</th>
+                  <th className="py-3 px-4 font-bold">المورد / المصدر</th>
+                  <th className="py-3 px-4 font-bold">أمين المستودع المستلم</th>
+                  <th className="py-3 px-4 font-bold">الحالة</th>
+                  <th className="py-3 px-4 font-bold text-center">الإجراءات</th>
                 </tr>
-              ) : (
-                filteredReceipts.map((rec) => (
-                  <tr key={`wh-rec-${rec.id}`} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-slate-900">{rec.receipt_no}</td>
-                    <td className="py-3 px-4 font-mono text-slate-600">{rec.receipt_date || rec.supply_date}</td>
-                    <td className="py-3 px-4 font-bold text-slate-800">{rec.warehouse_name}</td>
-                    <td className="py-3 px-4 font-bold text-purple-900">{rec.product_name}</td>
-                    <td className="py-3 px-4 font-mono font-bold text-emerald-800">{rec.quantity} {rec.unit}</td>
-                    <td className="py-3 px-4 font-medium text-slate-800">{rec.supplier_name}</td>
-                    <td className="py-3 px-4 text-slate-600">{rec.receiver_name || rec.received_by_name}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="emerald">تم التوريد وزيادة المخزون</Badge>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleViewReceipt(rec.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors"
-                      >
-                        <Eye className="w-3.5 h-3.5 text-slate-600" />
-                        <span>تفاصيل السند</span>
-                      </button>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredReceipts.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                      لا توجد سندات استلام مطابقة
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  filteredReceipts.map((rec) => (
+                    <tr key={`wh-rec-${rec.id}`} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900">{rec.receipt_no}</td>
+                      <td className="py-3 px-4 font-mono text-slate-600">{rec.receipt_date || rec.supply_date}</td>
+                      <td className="py-3 px-4 font-bold text-slate-800">{rec.warehouse_name}</td>
+                      <td className="py-3 px-4 font-bold text-purple-900">{rec.product_name}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-emerald-800">{rec.quantity} {rec.unit}</td>
+                      <td className="py-3 px-4 font-medium text-slate-800">{rec.supplier_name}</td>
+                      <td className="py-3 px-4 text-slate-600">{rec.receiver_name || rec.received_by_name}</td>
+                      <td className="py-3 px-4">
+                        <Badge variant="emerald">تم التوريد وزيادة المخزون</Badge>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleViewReceipt(rec.id, false)}
+                            className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-600" />
+                            <span>تفاصيل السند</span>
+                          </button>
+                          {canPrintReceipt && (
+                            <button
+                              type="button"
+                              onClick={() => handleViewReceipt(rec.id, true)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-lg text-xs font-bold transition-colors"
+                              title="طباعة السند"
+                            >
+                              <Printer className="w-3.5 h-3.5 text-purple-700" />
+                              <span>طباعة</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -448,31 +476,42 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
         isOpen={isViewOpen}
         onClose={() => setIsViewOpen(false)}
         title={`سند استلام وتوريد: ${selectedReceipt?.receipt_no || ''}`}
-        subtitle="توثيق حركة الإضافة المخزنية وتحديث رصيد المستودع"
-        maxWidth="lg"
+        subtitle="شركة نتش رول جروث للتنمية والاستثمار الزراعي — إدارة المستودعات والمخزون"
+        maxWidth="xl"
       >
         {selectedReceipt && (
           <div className="space-y-4 text-xs">
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-2 gap-3">
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <span className="text-slate-400 block text-[11px]">رقم السند:</span>
+                <span className="font-mono font-bold text-slate-900">{selectedReceipt.receipt_no}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">تاريخ الاستلام / التوريد:</span>
+                <span className="font-mono text-slate-800">{selectedReceipt.receipt_date || selectedReceipt.supply_date}</span>
+              </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">المستودع المستلم:</span>
-                <span className="font-bold text-slate-900">{selectedReceipt.warehouse_name}</span>
+                <span className="font-bold text-slate-900">
+                  {selectedReceipt.warehouse_name}
+                  {selectedReceipt.warehouse_code && <span className="text-[10px] font-mono text-slate-500 mr-1">({selectedReceipt.warehouse_code})</span>}
+                </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[11px]">المورد / الجهة:</span>
+                <span className="text-slate-400 block text-[11px]">المورد / جهة التوريد:</span>
                 <span className="font-bold text-slate-900">{selectedReceipt.supplier_name}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">تاريخ التوريد:</span>
-                <span className="font-mono text-slate-800">{selectedReceipt.receipt_date || selectedReceipt.supply_date}</span>
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">أمين المستودع المستلم:</span>
                 <span className="font-semibold text-slate-800">{selectedReceipt.receiver_name || selectedReceipt.received_by_name}</span>
               </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">حالة التوريد:</span>
+                <Badge variant="emerald">تم التوريد وزيادة المخزون</Badge>
+              </div>
               {selectedReceipt.notes && (
-                <div className="col-span-2">
-                  <span className="text-slate-400 block text-[11px]">ملاحظات:</span>
+                <div className="sm:col-span-2 pt-2 border-t border-slate-200">
+                  <span className="text-slate-400 block text-[11px]">ملاحظات الاستلام:</span>
                   <span className="text-slate-700">{selectedReceipt.notes}</span>
                 </div>
               )}
@@ -483,8 +522,9 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
                 <thead className="bg-slate-100 text-slate-700">
                   <tr>
                     <th className="p-2.5 font-bold">#</th>
-                    <th className="p-2.5 font-bold">الصنف</th>
+                    <th className="p-2.5 font-bold">الصنف المستلم</th>
                     <th className="p-2.5 font-bold">الكمية المضافة</th>
+                    <th className="p-2.5 font-bold">الوحدة</th>
                     <th className="p-2.5 font-bold">رقم التشغيلة</th>
                   </tr>
                 </thead>
@@ -492,17 +532,121 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
                   {selectedReceipt.items?.map((it, idx) => (
                     <tr key={idx}>
                       <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
-                      <td className="p-2.5 font-bold text-slate-900">{it.product_name}</td>
-                      <td className="p-2.5 font-mono font-black text-purple-900">{it.quantity_received} {it.unit}</td>
+                      <td className="p-2.5 font-bold text-slate-900">
+                        {it.product_name}
+                        {it.product_code && <span className="text-[10px] font-mono text-slate-400 mr-1">({it.product_code})</span>}
+                      </td>
+                      <td className="p-2.5 font-mono font-black text-purple-900">{it.quantity_received}</td>
+                      <td className="p-2.5 text-slate-600">{it.unit}</td>
                       <td className="p-2.5 font-mono text-slate-500">{it.batch_number || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              {canPrintReceipt && (
+                <button
+                  type="button"
+                  onClick={handlePrintSelectedReceipt}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>طباعة السند</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsViewOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-bold"
+              >
+                إغلاق
+              </button>
+            </div>
           </div>
         )}
       </Modal>
+
+      {/* FORMAL A4 PRINTABLE WAREHOUSE RECEIPT DOCUMENT (ONLY VISIBLE IN @media print) */}
+      {selectedReceipt && canPrintReceipt && (
+        <div className="hidden print:block printable-report-wrapper bg-white text-black p-4" dir="rtl">
+          <div className="border-b-2 border-slate-800 pb-4 mb-5 flex justify-between items-start">
+            <div>
+              <h1 className="text-lg font-black text-slate-900">شركة نتش رول جروث للتنمية والاستثمار الزراعي</h1>
+              <p className="text-xs text-slate-700 mt-0.5">إدارة المستودعات والمخزون — سند استلام وتوريد مخزني رسمي</p>
+            </div>
+            <div className="text-left text-xs space-y-0.5">
+              <div className="font-mono font-black text-sm">رقم السند: {selectedReceipt.receipt_no}</div>
+              <div>تاريخ الاستلام: <span className="font-mono">{selectedReceipt.receipt_date || selectedReceipt.supply_date}</span></div>
+              <div>حالة السند: تم التوريد وتحديث المخزون</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mb-5 text-xs border border-slate-300 rounded-lg p-3">
+            <div className="space-y-1">
+              <div className="font-bold text-slate-900 border-b border-slate-200 pb-1 mb-1">بيانات المستودع والتوريد</div>
+              <div>
+                المستودع المستلم: <span className="font-bold">{selectedReceipt.warehouse_name}</span>
+                {selectedReceipt.warehouse_code && <span className="font-mono mr-1">({selectedReceipt.warehouse_code})</span>}
+              </div>
+              <div>المورد / جهة التوريد: <span className="font-bold">{selectedReceipt.supplier_name}</span></div>
+            </div>
+            <div className="space-y-1">
+              <div className="font-bold text-slate-900 border-b border-slate-200 pb-1 mb-1">بيانات الاستلام والتوثيق</div>
+              <div>أمين المستودع المستلم: <span className="font-bold">{selectedReceipt.receiver_name || selectedReceipt.received_by_name}</span></div>
+              <div>تاريخ التوثيق: <span className="font-mono">{selectedReceipt.created_at || selectedReceipt.receipt_date}</span></div>
+            </div>
+          </div>
+
+          <table className="w-full text-right text-xs mb-5">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>كود الصنف</th>
+                <th>اسم المنتج المستلم</th>
+                <th>الكمية المستلمة</th>
+                <th>الوحدة</th>
+                <th>رقم التشغيلة (Batch)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedReceipt.items?.map((it, idx) => (
+                <tr key={`print-rec-item-${idx}`}>
+                  <td className="font-mono">{idx + 1}</td>
+                  <td className="font-mono">{it.product_code || selectedReceipt.product_code || '-'}</td>
+                  <td className="font-bold">{it.product_name}</td>
+                  <td className="font-mono font-bold">{it.quantity_received}</td>
+                  <td>{it.unit}</td>
+                  <td className="font-mono">{it.batch_number || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {selectedReceipt.notes && (
+            <div className="border border-slate-300 rounded p-2.5 text-xs mb-8">
+              <div className="font-bold mb-1">ملاحظات الفحص والاستلام:</div>
+              <div>{selectedReceipt.notes}</div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-300 text-center text-xs">
+            <div>
+              <div className="font-bold mb-6">المُسلِّم (جهة التوريد)</div>
+              <div>{selectedReceipt.supplier_name}</div>
+            </div>
+            <div>
+              <div className="font-bold mb-6">أمين المستودع المستلم</div>
+              <div>{selectedReceipt.receiver_name || selectedReceipt.received_by_name}</div>
+            </div>
+            <div>
+              <div className="font-bold mb-6">اعتماد إدارة الإنتاج</div>
+              <div>........................................</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
