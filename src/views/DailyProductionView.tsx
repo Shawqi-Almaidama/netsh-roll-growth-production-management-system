@@ -9,7 +9,8 @@ import {
   CheckCircle2,
   Trash2,
   Search,
-  X
+  X,
+  ArrowRight
 } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../context/AuthContext.js';
@@ -19,7 +20,7 @@ import { Badge } from '../components/ui/Badge.js';
 import { DateInput } from '../components/ui/DateInput.js';
 import { getLocalTodayDateString } from '../utils/date.js';
 
-export const DailyProductionView: React.FC = () => {
+export const DailyProductionView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const { user, hasRole } = useAuth();
   const [records, setRecords] = useState<DailyProductionRecord[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
@@ -159,9 +160,21 @@ export const DailyProductionView: React.FC = () => {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div>
-          <h1 className="text-base sm:text-lg font-bold text-slate-900">
-            سجل الإنتاج اليومي والنفوق والفرز
-          </h1>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors ml-1"
+                title="رجوع"
+              >
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
+            <h1 className="text-base sm:text-lg font-bold text-slate-900">
+              سجل الإنتاج اليومي والنفوق والفرز
+            </h1>
+          </div>
           <p className="text-xs text-slate-500 mt-1">
             توثيق إنتاج البيض اليومي بالأطباق، حالات النفوق، البيض المكسور والفرز، واستهلاك العلف والماء
           </p>

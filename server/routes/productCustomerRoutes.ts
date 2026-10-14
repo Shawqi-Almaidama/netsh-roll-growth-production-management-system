@@ -48,7 +48,7 @@ router.get('/products', authenticate, requireRoles('SALES_OFFICER', 'WAREHOUSE_K
 });
 
 // Dedicated Low Stock Alerts Endpoint
-router.get('/low-stock-alerts', authenticate, requireRoles('SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
+router.get(['/low-stock-alerts', '/products/low-stock-alerts'], authenticate, requireRoles('SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const allProducts = db.prepare(`
     SELECT p.id, p.product_code, p.product_name, p.category, p.unit, p.unit_price,
            p.current_stock, p.min_stock_alert, p.description,
@@ -72,28 +72,34 @@ router.get('/low-stock-alerts', authenticate, requireRoles('SALES_OFFICER', 'WAR
     p => Number(p.current_stock) > Number(p.min_stock_alert) && Number(p.current_stock) <= Number(p.min_stock_alert) * 1.25
   );
 
+  const outOfStockCount = lowStockProducts.filter(p => Number(p.current_stock) <= 0).length;
+
   res.json({
     success: true,
+    count: lowStockProducts.length,
+    outOfStockCount,
+    lowStockCount: lowStockProducts.length,
+    alerts: lowStockProducts,
     lowStockProducts,
     nearLowStockProducts,
     summary: {
       totalProductsCount: allProducts.length,
       lowStockCount: lowStockProducts.length,
-      outOfStockCount: lowStockProducts.filter(p => Number(p.current_stock) <= 0).length,
+      outOfStockCount,
       nearLowStockCount: nearLowStockProducts.length
     }
   });
 });
 
 router.post('/products', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (req, res) => {
-  const { productCode, productName, category, unit, unitPrice, initialStock, minStockAlert, description } = req.body;
+  const { productCode, productName, category, unit, unitPrice, initialStock, currentStock, minStockAlert, description } = req.body;
 
   if (!productCode || !productName || !category || !unit || unitPrice === undefined) {
     return res.status(400).json({ success: false, message: 'كود المنتج، اسمه، فئته، وحدته، وسعر الوحدة حقول إلزامية' });
   }
 
   const numPrice = Number(unitPrice);
-  const numStock = initialStock !== undefined ? Number(initialStock) : 0;
+  const numStock = initialStock !== undefined ? Number(initialStock) : currentStock !== undefined ? Number(currentStock) : 0;
   const numAlert = minStockAlert !== undefined ? Number(minStockAlert) : 10;
 
   if (!Number.isFinite(numPrice) || numPrice < 0 || !Number.isFinite(numStock) || numStock < 0 || !Number.isFinite(numAlert) || numAlert < 0) {
@@ -194,12 +200,12 @@ router.put('/products/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN')
 // -------------------------------------------------------------
 // CUSTOMERS (FR-09, UC-09)
 // -------------------------------------------------------------
-router.get('/customers', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT', 'ADMIN'), (req, res) => {
+router.get('/customers', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT', 'PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { search } = req.query;
 
   let query = `
     SELECT c.id, c.customer_code, c.customer_name, c.phone, c.address,
-           c.commercial_reg, c.tax_number, c.customer_type, c.notes, c.created_at,
+           c.commercial_reg, c.tax_number, c.tax_number as tax_no, c.customer_type, c.notes, c.created_at,
            (SELECT COUNT(*) FROM SALES_INVOICES inv WHERE inv.customer_id = c.id) as total_invoices,
            (SELECT COALESCE(SUM(total_amount), 0) FROM SALES_INVOICES inv WHERE inv.customer_id = c.id) as total_sales
     FROM CUSTOMERS c
@@ -220,13 +226,14 @@ router.get('/customers', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNTANT
 });
 
 router.post('/customers', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (req, res) => {
-  const { customerCode, customerName, phone, address, commercialReg, taxNumber, customerType, notes } = req.body;
+  const { customerCode, customerName, phone, address, commercialReg, taxNumber, taxNo, customerType, notes } = req.body;
+  const resolvedTaxNumber = taxNumber !== undefined ? taxNumber : taxNo;
 
   if (!customerCode || !customerName || !phone) {
     return res.status(400).json({ success: false, message: 'كود العميل، الاسم، ورقم الهاتف حقول إلزامية' });
   }
 
-  if (customerType && !['WHOLESALE', 'RETAIL', 'DISTRIBUTOR'].includes(customerType)) {
+  if (customerType && !['WHOLESALE', 'RETAIL', 'DISTRIBUTOR', 'HOTEL_RESTAURANT', 'HORECA', 'AGENT'].includes(customerType)) {
     return res.status(400).json({ success: false, message: 'نوع العميل غير صالح' });
   }
 
@@ -244,7 +251,7 @@ router.post('/customers', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), 
     String(phone).trim(),
     address || null,
     commercialReg || null,
-    taxNumber || null,
+    resolvedTaxNumber || null,
     customerType || 'WHOLESALE',
     notes || null
   );
@@ -258,14 +265,15 @@ router.put('/customers/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'
     return res.status(400).json({ success: false, message: 'معرف العميل غير صالح' });
   }
 
-  const { customerName, phone, address, commercialReg, taxNumber, customerType, notes } = req.body;
+  const { customerName, phone, address, commercialReg, taxNumber, taxNo, customerType, notes } = req.body;
+  const resolvedTaxNumber = taxNumber !== undefined ? taxNumber : taxNo;
 
   const current = db.prepare('SELECT id FROM CUSTOMERS WHERE id = ?').get(customerId);
   if (!current) {
     return res.status(404).json({ success: false, message: 'العميل غير موجود' });
   }
 
-  if (customerType && !['WHOLESALE', 'RETAIL', 'DISTRIBUTOR'].includes(customerType)) {
+  if (customerType && !['WHOLESALE', 'RETAIL', 'DISTRIBUTOR', 'HOTEL_RESTAURANT', 'HORECA', 'AGENT'].includes(customerType)) {
     return res.status(400).json({ success: false, message: 'نوع العميل غير صالح' });
   }
 
@@ -279,7 +287,7 @@ router.put('/customers/:id', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'
         customer_type = COALESCE(?, customer_type),
         notes = COALESCE(?, notes)
     WHERE id = ?
-  `).run(customerName || null, phone || null, address || null, commercialReg || null, taxNumber || null, customerType || null, notes || null, customerId);
+  `).run(customerName || null, phone || null, address || null, commercialReg || null, resolvedTaxNumber || null, customerType || null, notes || null, customerId);
 
   res.json({ success: true, message: 'تم تحديث بيانات العميل بنجاح' });
 });

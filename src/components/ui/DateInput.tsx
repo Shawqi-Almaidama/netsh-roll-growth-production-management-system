@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Calendar, X, ChevronRight, ChevronLeft, AlertCircle, CheckCircle2 } from 'lucide-react';
 import {
   ARABIC_MONTHS,
   normalizeDigits,
   getDaysInMonth,
   validateGregorianParts,
+  evaluateDateSegmentTransition,
   getLocalTodayDateString,
   getLocalDateDaysAgo,
   formatArabicDateDisplay
@@ -48,7 +50,12 @@ export const DateInput: React.FC<DateInputProps> = ({
   const [monthStr, setMonthStr] = useState<string>(initialParts.month);
   const [yearStr, setYearStr] = useState<string>(initialParts.year);
   const [touched, setTouched] = useState<boolean>(false);
+  const [hadValidValue, setHadValidValue] = useState<boolean>(Boolean(initialParts.year));
   const [isPickerOpen, setIsPickerOpen] = useState<boolean>(false);
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
+
+  // Track last ISO date emitted by DateInput so we can distinguish internal invalidation from external prop updates
+  const lastEmittedIsoRef = useRef<string>(value || '');
 
   // Calendar popover view state (year & month 1..12)
   const todayIso = getLocalTodayDateString();
@@ -64,63 +71,138 @@ export const DateInput: React.FC<DateInputProps> = ({
   const monthInputRef = useRef<HTMLInputElement>(null);
   const yearInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerBoxRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Sync external `value` prop changes (e.g. Reset button or preset selection)
   useEffect(() => {
-    const parts = parseIsoParts(value);
-    const currentValidation = validateGregorianParts(yearStr, monthStr, dayStr, required);
-    if (value !== currentValidation.isoDate) {
+    if (value !== lastEmittedIsoRef.current) {
+      lastEmittedIsoRef.current = value || '';
+      const parts = parseIsoParts(value);
       setDayStr(parts.day);
       setMonthStr(parts.month);
       setYearStr(parts.year);
       if (parts.year && parts.month) {
         setViewYear(parseInt(parts.year, 10));
         setViewMonth(parseInt(parts.month, 10));
-      }
-      if (!value) {
+        setHadValidValue(true);
+      } else if (!value) {
         setTouched(false);
+        setHadValidValue(false);
       }
     }
   }, [value]);
 
-  // Close calendar popover on outside click or Escape
+  const updatePopoverPosition = useCallback(() => {
+    if (!triggerBoxRef.current) return;
+    const rect = triggerBoxRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 8;
+    const width = Math.min(320, vw - margin * 2);
+
+    // Align right edge with trigger in RTL, clamped strictly inside viewport bounds
+    const left = Math.max(margin, Math.min(rect.right - width, vw - width - margin));
+
+    const estHeight = 340;
+    const spaceBelow = vh - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+
+    if (spaceBelow >= estHeight) {
+      setPopoverStyle({
+        position: 'fixed',
+        top: rect.bottom + 6,
+        left,
+        width,
+        maxHeight: Math.min(400, spaceBelow)
+      });
+    } else if (spaceAbove >= estHeight) {
+      setPopoverStyle({
+        position: 'fixed',
+        bottom: vh - rect.top + 6,
+        left,
+        width,
+        maxHeight: Math.min(400, spaceAbove)
+      });
+    } else {
+      const clampedHeight = Math.min(estHeight, vh - margin * 2);
+      const top = Math.max(margin, Math.min(rect.bottom + 6, vh - clampedHeight - margin));
+      setPopoverStyle({
+        position: 'fixed',
+        top,
+        left,
+        width,
+        maxHeight: vh - margin * 2
+      });
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isPickerOpen) return;
+    updatePopoverPosition();
+    window.addEventListener('resize', updatePopoverPosition);
+    window.addEventListener('scroll', updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePopoverPosition);
+      window.removeEventListener('scroll', updatePopoverPosition, true);
+    };
+  }, [isPickerOpen, updatePopoverPosition]);
+
+  // Close calendar popover on outside click or Escape (capture phase so enclosing Modal doesn't close)
   useEffect(() => {
     if (!isPickerOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        (!popoverRef.current || !popoverRef.current.contains(target))
+      ) {
         setIsPickerOpen(false);
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         setIsPickerOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [isPickerOpen]);
 
   const evaluateAndNotify = (nextYear: string, nextMonth: string, nextDay: string) => {
-    const result = validateGregorianParts(nextYear, nextMonth, nextDay, required);
-    onValidityChange?.(result.valid, result.error);
-    if (result.valid) {
-      onChange(result.isoDate);
-      if (result.isoDate) {
-        const [y, m] = result.isoDate.split('-').map((n) => parseInt(n, 10));
-        setViewYear(y);
-        setViewMonth(m);
-      }
+    const transition = evaluateDateSegmentTransition(
+      lastEmittedIsoRef.current,
+      nextYear,
+      nextMonth,
+      nextDay,
+      required
+    );
+    onValidityChange?.(transition.valid, transition.error);
+
+    if (transition.shouldEmitChange) {
+      lastEmittedIsoRef.current = transition.nextEmittedIso;
+      onChange(transition.nextEmittedIso);
+    }
+
+    if (transition.valid && transition.isoDate) {
+      setHadValidValue(true);
+      const [y, m] = transition.isoDate.split('-').map((n) => parseInt(n, 10));
+      setViewYear(y);
+      setViewMonth(m);
     }
   };
 
   const handleDayChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const digits = normalizeDigits(e.target.value, true).slice(0, 2);
     setDayStr(digits);
-    setTouched(true);
     evaluateAndNotify(yearStr, monthStr, digits);
 
     // Auto-advance to Month field on 2 digits or if single digit > 3 (4..9)
@@ -138,7 +220,6 @@ export const DateInput: React.FC<DateInputProps> = ({
   const handleMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const digits = normalizeDigits(e.target.value, true).slice(0, 2);
     setMonthStr(digits);
-    setTouched(true);
     evaluateAndNotify(yearStr, digits, dayStr);
 
     // Auto-advance to Year field on 2 digits or if single digit > 1 (2..9)
@@ -156,35 +237,35 @@ export const DateInput: React.FC<DateInputProps> = ({
   const handleYearChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const digits = normalizeDigits(e.target.value, true).slice(0, 4);
     setYearStr(digits);
-    setTouched(true);
+    if (digits.length === 4) {
+      setTouched(true);
+    }
     evaluateAndNotify(digits, monthStr, dayStr);
   };
 
-  const handleDayBlur = () => {
-    setTouched(true);
-    if (dayStr.length === 1 && dayStr !== '0') {
-      const padded = `0${dayStr}`;
-      setDayStr(padded);
-      evaluateAndNotify(yearStr, monthStr, padded);
-    } else {
-      evaluateAndNotify(yearStr, monthStr, dayStr);
-    }
-  };
+  const handleSegmentBlur = (
+    field: 'day' | 'month' | 'year',
+    e: React.FocusEvent<HTMLInputElement>
+  ) => {
+    let nextDay = dayStr;
+    let nextMonth = monthStr;
 
-  const handleMonthBlur = () => {
-    setTouched(true);
-    if (monthStr.length === 1 && monthStr !== '0') {
-      const padded = `0${monthStr}`;
-      setMonthStr(padded);
-      evaluateAndNotify(yearStr, padded, dayStr);
-    } else {
-      evaluateAndNotify(yearStr, monthStr, dayStr);
+    if (field === 'day' && dayStr.length === 1 && dayStr !== '0') {
+      nextDay = `0${dayStr}`;
+      setDayStr(nextDay);
     }
-  };
+    if (field === 'month' && monthStr.length === 1 && monthStr !== '0') {
+      nextMonth = `0${monthStr}`;
+      setMonthStr(nextMonth);
+    }
 
-  const handleYearBlur = () => {
-    setTouched(true);
-    evaluateAndNotify(yearStr, monthStr, dayStr);
+    // Mark touched when focus leaves the segmented input container
+    const nextFocused = e.relatedTarget as Node | null;
+    if (!triggerBoxRef.current || !nextFocused || !triggerBoxRef.current.contains(nextFocused)) {
+      setTouched(true);
+    }
+
+    evaluateAndNotify(yearStr, nextMonth, nextDay);
   };
 
   const handleMonthKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -205,6 +286,8 @@ export const DateInput: React.FC<DateInputProps> = ({
     setMonthStr(parts.month);
     setYearStr(parts.year);
     setTouched(true);
+    setHadValidValue(Boolean(iso));
+    lastEmittedIsoRef.current = iso;
     onValidityChange?.(true, null);
     onChange(iso);
     if (parts.year && parts.month) {
@@ -219,7 +302,9 @@ export const DateInput: React.FC<DateInputProps> = ({
     setMonthStr('');
     setYearStr('');
     setTouched(false);
+    setHadValidValue(false);
     const valid = !required;
+    lastEmittedIsoRef.current = '';
     onValidityChange?.(valid, valid ? null : 'يرجى إدخال التاريخ كاملاً (اليوم والشهر والسنة).');
     onChange('');
     setIsPickerOpen(false);
@@ -250,7 +335,15 @@ export const DateInput: React.FC<DateInputProps> = ({
 
   const validation = validateGregorianParts(yearStr, monthStr, dayStr, required);
   const hasAnyInput = Boolean(dayStr || monthStr || yearStr);
-  const showError = (touched || (hasAnyInput && yearStr.length === 4)) && !validation.valid && Boolean(validation.error);
+  const hasCompleteParts = Boolean(dayStr && monthStr && yearStr.length === 4);
+  const hasImmediateRangeError =
+    (dayStr.length === 2 && (parseInt(dayStr, 10) < 1 || parseInt(dayStr, 10) > 31)) ||
+    (monthStr.length === 2 && (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12));
+
+  const showError =
+    (touched || hadValidValue || hasCompleteParts || hasImmediateRangeError) &&
+    !validation.valid &&
+    Boolean(validation.error);
 
   // Calendar grid generation for (viewYear, viewMonth)
   const daysInViewMonth = getDaysInMonth(viewYear, viewMonth);
@@ -267,6 +360,150 @@ export const DateInput: React.FC<DateInputProps> = ({
   for (let y = todayY - 6; y <= todayY + 5; y++) {
     yearOptions.push(y);
   }
+
+  const calendarPopover = isPickerOpen ? (
+    <div
+      ref={popoverRef}
+      role="dialog"
+      aria-label={label ? `تقويم اختيار ${label}` : 'تقويم اختيار التاريخ'}
+      style={popoverStyle}
+      className="z-[70] bg-white rounded-2xl border border-slate-200 shadow-2xl p-3.5 space-y-3 overflow-y-auto overscroll-contain animate-fadeIn"
+      dir="rtl"
+    >
+      {/* Calendar Month & Year Navigation Header */}
+      <div className="flex items-center justify-between gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
+        <button
+          type="button"
+          onClick={handlePrevMonth}
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition-colors shrink-0"
+          title="الشهر السابق"
+          aria-label="الشهر السابق"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          <select
+            value={viewMonth}
+            onChange={(e) => setViewMonth(parseInt(e.target.value, 10))}
+            aria-label="اختر الشهر"
+            className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-1.5 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-600"
+          >
+            {ARABIC_MONTHS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {String(m.value).padStart(2, '0')} - {m.shortName}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={viewYear}
+            onChange={(e) => setViewYear(parseInt(e.target.value, 10))}
+            aria-label="اختر السنة"
+            dir="ltr"
+            className="w-20 bg-white border border-slate-200 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-emerald-600"
+          >
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleNextMonth}
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition-colors shrink-0"
+          title="الشهر التالي"
+          aria-label="الشهر التالي"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Weekday Headers */}
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {WEEKDAYS_AR.map((dayName) => (
+          <span
+            key={dayName}
+            className="text-[11px] font-bold text-slate-400 py-1 select-none"
+          >
+            {dayName}
+          </span>
+        ))}
+      </div>
+
+      {/* Days Grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {calendarDays.map((dayNum, idx) => {
+          if (dayNum === null) {
+            return <div key={`empty-${idx}`} className="h-9" />;
+          }
+
+          const cellIso = `${String(viewYear).padStart(4, '0')}-${String(viewMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+          const isSelected = validation.valid && validation.isoDate === cellIso;
+          const isToday = cellIso === todayIso;
+
+          return (
+            <button
+              key={cellIso}
+              type="button"
+              onClick={() => handleSelectCalendarDay(dayNum)}
+              className={`h-9 rounded-lg font-mono text-xs font-bold transition-all flex items-center justify-center ${
+                isSelected
+                  ? 'bg-emerald-700 text-white shadow-xs ring-2 ring-emerald-700/30'
+                  : isToday
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                  : 'text-slate-700 hover:bg-slate-100 active:bg-slate-200'
+              }`}
+            >
+              {dayNum}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Quick Selection Footer */}
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => applyIsoDate(getLocalTodayDateString())}
+            className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold transition-colors"
+          >
+            اليوم
+          </button>
+          <button
+            type="button"
+            onClick={() => applyIsoDate(getLocalDateDaysAgo(1))}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors"
+          >
+            أمس
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {!required && hasAnyInput && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold transition-colors"
+            >
+              مسح
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsPickerOpen(false)}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold transition-colors"
+          >
+            إغلاق
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div ref={containerRef} id={id} className={`relative w-full ${className}`} dir="rtl">
@@ -295,6 +532,7 @@ export const DateInput: React.FC<DateInputProps> = ({
 
       {/* Main Segmented Date Input Container */}
       <div
+        ref={triggerBoxRef}
         className={`flex items-stretch bg-white rounded-xl border transition-all shadow-2xs ${
           showError
             ? 'border-rose-400 ring-2 ring-rose-500/15'
@@ -327,7 +565,7 @@ export const DateInput: React.FC<DateInputProps> = ({
               aria-label={label ? `${label} - اليوم` : 'اليوم'}
               value={dayStr}
               onChange={handleDayChange}
-              onBlur={handleDayBlur}
+              onBlur={(e) => handleSegmentBlur('day', e)}
               onFocus={(e) => e.target.select()}
               className="w-full bg-transparent text-center font-mono text-xs sm:text-sm font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none mt-0.5"
             />
@@ -355,7 +593,7 @@ export const DateInput: React.FC<DateInputProps> = ({
               aria-label={label ? `${label} - الشهر` : 'الشهر'}
               value={monthStr}
               onChange={handleMonthChange}
-              onBlur={handleMonthBlur}
+              onBlur={(e) => handleSegmentBlur('month', e)}
               onKeyDown={handleMonthKeyDown}
               onFocus={(e) => e.target.select()}
               className="w-full bg-transparent text-center font-mono text-xs sm:text-sm font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none mt-0.5"
@@ -384,7 +622,7 @@ export const DateInput: React.FC<DateInputProps> = ({
               aria-label={label ? `${label} - السنة` : 'السنة'}
               value={yearStr}
               onChange={handleYearChange}
-              onBlur={handleYearBlur}
+              onBlur={(e) => handleSegmentBlur('year', e)}
               onKeyDown={handleYearKeyDown}
               onFocus={(e) => e.target.select()}
               className="w-full bg-transparent text-center font-mono text-xs sm:text-sm font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none mt-0.5"
@@ -432,146 +670,10 @@ export const DateInput: React.FC<DateInputProps> = ({
         </div>
       )}
 
-      {/* Interactive Arabic Gregorian Calendar Popover */}
-      {isPickerOpen && (
-        <div
-          className="absolute z-50 mt-1.5 right-0 left-0 sm:left-auto sm:w-80 bg-white rounded-2xl border border-slate-200 shadow-xl p-3.5 space-y-3 animate-fadeIn"
-          dir="rtl"
-        >
-          {/* Calendar Month & Year Navigation Header */}
-          <div className="flex items-center justify-between gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
-            <button
-              type="button"
-              onClick={handlePrevMonth}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition-colors shrink-0"
-              title="الشهر السابق"
-              aria-label="الشهر السابق"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-center gap-1 flex-1 min-w-0">
-              <select
-                value={viewMonth}
-                onChange={(e) => setViewMonth(parseInt(e.target.value, 10))}
-                aria-label="اختر الشهر"
-                className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-1.5 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-600"
-              >
-                {ARABIC_MONTHS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {String(m.value).padStart(2, '0')} - {m.shortName}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={viewYear}
-                onChange={(e) => setViewYear(parseInt(e.target.value, 10))}
-                aria-label="اختر السنة"
-                dir="ltr"
-                className="w-20 bg-white border border-slate-200 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-emerald-600"
-              >
-                {yearOptions.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleNextMonth}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition-colors shrink-0"
-              title="الشهر التالي"
-              aria-label="الشهر التالي"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Weekday Headers */}
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {WEEKDAYS_AR.map((dayName) => (
-              <span
-                key={dayName}
-                className="text-[11px] font-bold text-slate-400 py-1 select-none"
-              >
-                {dayName}
-              </span>
-            ))}
-          </div>
-
-          {/* Days Grid */}
-          <div className="grid grid-cols-7 gap-1">
-            {calendarDays.map((dayNum, idx) => {
-              if (dayNum === null) {
-                return <div key={`empty-${idx}`} className="h-9" />;
-              }
-
-              const cellIso = `${String(viewYear).padStart(4, '0')}-${String(viewMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-              const isSelected = validation.valid && validation.isoDate === cellIso;
-              const isToday = cellIso === todayIso;
-
-              return (
-                <button
-                  key={cellIso}
-                  type="button"
-                  onClick={() => handleSelectCalendarDay(dayNum)}
-                  className={`h-9 rounded-lg font-mono text-xs font-bold transition-all flex items-center justify-center ${
-                    isSelected
-                      ? 'bg-emerald-700 text-white shadow-xs ring-2 ring-emerald-700/30'
-                      : isToday
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                      : 'text-slate-700 hover:bg-slate-100 active:bg-slate-200'
-                  }`}
-                >
-                  {dayNum}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Quick Selection Footer */}
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => applyIsoDate(getLocalTodayDateString())}
-                className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold transition-colors"
-              >
-                اليوم
-              </button>
-              <button
-                type="button"
-                onClick={() => applyIsoDate(getLocalDateDaysAgo(1))}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors"
-              >
-                أمس
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              {!required && hasAnyInput && (
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold transition-colors"
-                >
-                  مسح
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsPickerOpen(false)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold transition-colors"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Render Calendar Popover in Document Body Portal to Prevent Clipping inside Modals */}
+      {typeof document !== 'undefined' && calendarPopover
+        ? createPortal(calendarPopover, document.body)
+        : null}
     </div>
   );
 };

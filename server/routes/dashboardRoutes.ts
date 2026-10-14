@@ -1,19 +1,23 @@
 import { Router, Response } from 'express';
 import { db } from '../db.js';
 import { authenticate, requireRoles, AuthenticatedRequest } from '../auth.js';
+import { getLocalTodayDateString, getRelativeLocalDateString } from '../../src/utils/date.js';
 
 const router = Router();
 
-// Helper for date filtering based on period
+// Helper for date filtering based on local operational period (prevents UTC midnight drift)
 function getDateFilter(col: string, period: string) {
   if (period === 'today') {
-    return `date(${col}) = date('now')`;
+    const todayLocal = getLocalTodayDateString();
+    return `date(${col}) = date('${todayLocal}')`;
   }
   if (period === '7days') {
-    return `date(${col}) >= date('now', '-7 days')`;
+    const sevenDaysAgoLocal = getRelativeLocalDateString(-7);
+    return `date(${col}) >= date('${sevenDaysAgoLocal}')`;
   }
   if (period === '30days') {
-    return `date(${col}) >= date('now', '-30 days')`;
+    const thirtyDaysAgoLocal = getRelativeLocalDateString(-30);
+    return `date(${col}) >= date('${thirtyDaysAgoLocal}')`;
   }
   return '1=1'; // all
 }
@@ -520,7 +524,7 @@ router.get('/stats', authenticate, (req: AuthenticatedRequest, res: Response) =>
 
   const currentBirdsCount = (db.prepare("SELECT COALESCE(SUM(current_count), 0) as s FROM FLOCKS WHERE status = 'ACTIVE'").get() as any)?.s || 0;
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayDateString();
   const todayProd = (db.prepare(`
     SELECT COALESCE(SUM(CASE WHEN unit = 'طبق' THEN production_quantity ELSE 0 END), 0) as prod,
            COALESCE(SUM(mortality_count), 0) as mort

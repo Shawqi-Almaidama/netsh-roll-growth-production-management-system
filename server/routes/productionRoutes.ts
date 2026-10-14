@@ -63,7 +63,8 @@ router.get('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', '
            f.farm_name, f.farm_code,
            s.full_name as supervisor_name,
            fl.id as active_flock_id, fl.flock_code as active_flock_code, fl.breed as active_flock_breed,
-           fl.current_count as active_flock_count
+           COALESCE(fl.current_count, 0) as active_flock_count,
+           COALESCE(fl.current_count, 0) as active_bird_count
     FROM HOUSES h
     JOIN FARMS f ON h.farm_id = f.id
     LEFT JOIN SUPERVISORS s ON h.supervisor_id = s.id
@@ -81,8 +82,9 @@ router.get('/houses', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', '
 
 router.post('/houses', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req, res) => {
   const { farmId, houseCode, houseName, houseType, capacity, supervisorId, notes } = req.body;
+  const resolvedHouseType = houseType ? String(houseType).trim() : 'إنتاج بيض (بياض)';
 
-  if (!farmId || !houseCode || !houseName || !houseType || !capacity) {
+  if (!farmId || !houseCode || !houseName || !resolvedHouseType || !capacity) {
     return res.status(400).json({ success: false, message: 'جميع بيانات الهنجر الأساسية مطلوبة (المزرعة، الكود، الاسم، النوع، الطاقة)' });
   }
 
@@ -104,7 +106,7 @@ router.post('/houses', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req
   const result = db.prepare(`
     INSERT INTO HOUSES (farm_id, house_code, house_name, house_type, capacity, current_status, supervisor_id, notes)
     VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
-  `).run(Number(farmId), String(houseCode).trim(), String(houseName).trim(), String(houseType).trim(), numCapacity, supervisorId || null, notes || null);
+  `).run(Number(farmId), String(houseCode).trim(), String(houseName).trim(), resolvedHouseType, numCapacity, supervisorId || null, notes || null);
 
   res.status(201).json({ success: true, message: 'تم إضافة الهنجر بنجاح', houseId: result.lastInsertRowid });
 });
@@ -153,6 +155,7 @@ router.get('/flocks', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', '
 
   const flocks = db.prepare(`
     SELECT fl.id, fl.house_id, fl.flock_code, fl.breed, fl.initial_count, fl.current_count,
+           fl.current_count as current_bird_count,
            fl.total_mortality, fl.entry_date, fl.target_weight_g, fl.status, fl.notes,
            h.house_name, h.house_code, h.house_type, h.supervisor_id,
            f.farm_name, f.farm_code
@@ -254,12 +257,19 @@ router.get('/daily', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'A
 
   let query = `
     SELECT dp.id, dp.flock_id, dp.house_id, dp.record_date, dp.production_quantity, dp.unit,
-           dp.mortality_count, dp.feed_consumed_kg, dp.water_consumed_liters, dp.avg_weight_g,
+           dp.production_quantity as prod_Egg_Trays,
+           0 as damaged_eggs,
+           0 as cull_eggs,
+           dp.production_quantity as net_trays,
+           dp.mortality_count, dp.feed_consumed_kg, dp.water_consumed_liters,
+           dp.water_consumed_liters as water_consumed_l,
+           dp.avg_weight_g,
            dp.temperature_c, dp.humidity_pct, dp.supervisor_id, dp.notes, dp.created_at,
-           fl.flock_code, fl.breed, fl.current_count,
+           fl.flock_code, fl.breed, fl.breed as flock_name, fl.current_count,
            h.house_name, h.house_code, h.house_type,
            f.farm_name,
-           u.full_name as supervisor_name
+           u.full_name as supervisor_name,
+           u.full_name as recorded_by_name
     FROM DAILY_PRODUCTION dp
     JOIN FLOCKS fl ON dp.flock_id = fl.id
     JOIN HOUSES h ON dp.house_id = h.id
@@ -298,13 +308,14 @@ router.get('/daily', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'A
   res.json({ success: true, records });
 });
 
-// POST /daily: Record daily production (SUPERVISOR, ADMIN)
+// POST /daily: Record daily production (SUPERVISOR, PROD_MANAGER, ADMIN)
 // Updates flock count and mortality in an atomic transaction
-router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const {
     flockId,
     recordDate,
     productionQuantity,
+    prodEggTrays,
     unit,
     mortalityCount,
     feedConsumedKg,
@@ -316,6 +327,7 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
     notes
   } = req.body;
 
+  const rawProdQty = productionQuantity !== undefined ? productionQuantity : prodEggTrays;
   const rawWater = waterConsumedLiters !== undefined ? waterConsumedLiters : waterConsumedL;
 
   if (!flockId || !recordDate) {
@@ -345,7 +357,7 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
 
   if (
     (mortalityCount !== undefined && (!Number.isInteger(Number(mortalityCount)) || Number(mortalityCount) < 0)) ||
-    (productionQuantity !== undefined && (!Number.isFinite(Number(productionQuantity)) || Number(productionQuantity) < 0)) ||
+    (rawProdQty !== undefined && (!Number.isFinite(Number(rawProdQty)) || Number(rawProdQty) < 0)) ||
     (feedConsumedKg !== undefined && (!Number.isFinite(Number(feedConsumedKg)) || Number(feedConsumedKg) < 0)) ||
     (rawWater !== undefined && rawWater !== null && rawWater !== '' && (!Number.isFinite(Number(rawWater)) || Number(rawWater) < 0)) ||
     (avgWeightG !== undefined && avgWeightG !== null && avgWeightG !== '' && (!Number.isFinite(Number(avgWeightG)) || Number(avgWeightG) < 0)) ||
@@ -356,7 +368,7 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
   }
 
   const mortCount = Math.floor(Number(mortalityCount) || 0);
-  const prodQty = Number(productionQuantity) || 0;
+  const prodQty = Number(rawProdQty) || 0;
   const feedKg = Number(feedConsumedKg) || 0;
 
   if (mortCount > flock.current_count) {
@@ -433,6 +445,39 @@ router.post('/daily', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: A
     try { db.exec('ROLLBACK;'); } catch {}
     console.error('Error recording daily production:', err);
     res.status(500).json({ success: false, message: 'حدث خطأ أثناء حفظ سجل الإنتاج اليومي' });
+  }
+});
+
+// DELETE /daily/:id: Delete a daily production record and restore flock mortality count (PROD_MANAGER, ADMIN)
+router.delete('/daily/:id', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  const recordId = Number(req.params.id);
+  if (!Number.isInteger(recordId) || recordId <= 0) {
+    return res.status(400).json({ success: false, message: 'معرف السجل غير صالح' });
+  }
+
+  const record = db.prepare('SELECT id, flock_id, mortality_count FROM DAILY_PRODUCTION WHERE id = ?').get(recordId) as any;
+  if (!record) {
+    return res.status(404).json({ success: false, message: 'سجل الإنتاج اليومي غير موجود' });
+  }
+
+  try {
+    db.exec('BEGIN TRANSACTION;');
+    const mortCount = Number(record.mortality_count) || 0;
+    if (mortCount > 0 && record.flock_id) {
+      db.prepare(`
+        UPDATE FLOCKS
+        SET current_count = current_count + ?,
+            total_mortality = MAX(0, total_mortality - ?)
+        WHERE id = ?
+      `).run(mortCount, mortCount, record.flock_id);
+    }
+    db.prepare('DELETE FROM DAILY_PRODUCTION WHERE id = ?').run(recordId);
+    db.exec('COMMIT;');
+    res.json({ success: true, message: 'تم حذف سجل الإنتاج اليومي بنجاح' });
+  } catch (err: any) {
+    try { db.exec('ROLLBACK;'); } catch {}
+    console.error('Error deleting daily production record:', err);
+    res.status(500).json({ success: false, message: 'حدث خطأ أثناء حذف سجل الإنتاج اليومي' });
   }
 });
 

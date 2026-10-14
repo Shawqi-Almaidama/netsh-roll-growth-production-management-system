@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, ArrowRight } from 'lucide-react';
 
 interface ModalProps {
   id?: string;
@@ -9,6 +9,7 @@ interface ModalProps {
   subtitle?: string;
   children: React.ReactNode;
   maxWidth?: string;
+  backLabel?: string;
 }
 
 const MAX_WIDTH_MAP: Record<string, string> = {
@@ -28,7 +29,8 @@ export const Modal: React.FC<ModalProps> = ({
   title,
   subtitle,
   children,
-  maxWidth = 'max-w-lg'
+  maxWidth = 'max-w-lg',
+  backLabel = 'رجوع'
 }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -53,25 +55,39 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <div
       id={id}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn no-print print:hidden"
       dir="rtl"
       role="dialog"
       aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className={`bg-white w-full ${resolvedMaxWidth} rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh]`}
       >
         {/* Header */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 flex items-start justify-between gap-3 bg-slate-50/70 shrink-0">
-          <div className="min-w-0 flex-1">
-            <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug break-words">
-              {title}
-            </h3>
-            {subtitle && (
-              <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                {subtitle}
-              </p>
-            )}
+          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={onClose}
+              title={backLabel}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors shrink-0 mt-0.5"
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-emerald-700" />
+              <span>{backLabel}</span>
+            </button>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug break-words">
+                {title}
+              </h3>
+              {subtitle && (
+                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                  {subtitle}
+                </p>
+              )}
+            </div>
           </div>
           <button
             type="button"

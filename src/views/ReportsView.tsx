@@ -16,14 +16,21 @@ import {
   AlertTriangle,
   LayoutGrid,
   Table as TableIcon,
-  CalendarRange
+  CalendarRange,
+  ArrowRight,
+  Eye
 } from 'lucide-react';
 import { api } from '../api.js';
 import { Badge } from '../components/ui/Badge.js';
 import { DateInput } from '../components/ui/DateInput.js';
+import { DocumentPreviewModal } from '../components/ui/DocumentPreviewModal.js';
 import { formatCurrency } from '../utils/currency.js';
 import { matchesInstantSearch } from '../utils/search.js';
-import { exportReportToPdf } from '../utils/pdfExport.js';
+import {
+  buildReportDocumentHtml,
+  exportReportToPdf,
+  printReportDocument
+} from '../utils/pdfExport.js';
 import {
   getLocalTodayDateString,
   getLocalDateDaysAgo,
@@ -32,7 +39,7 @@ import {
 } from '../utils/date.js';
 import { useAuth } from '../context/AuthContext.js';
 
-export const ReportsView: React.FC = () => {
+export const ReportsView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const { user } = useAuth();
   const [activeReport, setActiveReport] = useState<'R-01' | 'R-02' | 'R-03' | 'R-04' | 'R-05'>('R-01');
   const [startDate, setStartDate] = useState('');
@@ -41,6 +48,7 @@ export const ReportsView: React.FC = () => {
   const [endDateValid, setEndDateValid] = useState(true);
   const [startDateFieldError, setStartDateFieldError] = useState<string | null>(null);
   const [endDateFieldError, setEndDateFieldError] = useState<string | null>(null);
+  const [dateResetKey, setDateResetKey] = useState(0);
   const [appliedDates, setAppliedDates] = useState<{ start: string; end: string }>({
     start: '',
     end: ''
@@ -50,6 +58,7 @@ export const ReportsView: React.FC = () => {
   const [reportData, setReportData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [mobileDisplayMode, setMobileDisplayMode] = useState<'cards' | 'table'>('cards');
 
   const fetchReport = async (customRange?: { start: string; end: string }) => {
@@ -113,6 +122,7 @@ export const ReportsView: React.FC = () => {
     setStartDateFieldError(null);
     setEndDateFieldError(null);
     setDateFilterError(null);
+    setDateResetKey((k) => k + 1);
     fetchReport({ start: '', end: '' });
   };
 
@@ -122,6 +132,7 @@ export const ReportsView: React.FC = () => {
     setEndDateValid(true);
     setStartDateFieldError(null);
     setEndDateFieldError(null);
+    setDateResetKey((k) => k + 1);
 
     if (preset === 'all') {
       setStartDate('');
@@ -145,10 +156,6 @@ export const ReportsView: React.FC = () => {
   useEffect(() => {
     fetchReport(appliedDates);
   }, [activeReport]);
-
-  const handlePrint = () => {
-    window.print();
-  };
 
   const reportTabs = [
     {
@@ -204,8 +211,11 @@ export const ReportsView: React.FC = () => {
 
   const reqTypeLabels: Record<string, string> = {
     FEED: 'أعلاف وتغذية',
+    CHICKS: 'كتاكيت ودفعات جديدة',
     MEDICINE: 'أدوية ولقاحات بيطرية',
+    TREATMENT: 'أدوية وعلاجات بيطرية',
     SUPPLIES: 'مستلزمات تشغيل',
+    SUPPLY: 'توريد مستلزمات عامة',
     MAINTENANCE: 'قطع غيار وصيانة'
   };
 
@@ -291,150 +301,224 @@ export const ReportsView: React.FC = () => {
     );
   }, [reportData, reportSearchKw]);
 
+  const getReportDocumentConfig = () => {
+    if (!reportData) return null;
+    const periodText = `${appliedDates.start || 'من البداية'} إلى ${appliedDates.end || 'حتى الآن'}${
+      reportSearchKw.trim() ? ` — بحث: "${reportSearchKw.trim()}"` : ''
+    }`;
+    const exporterName = user?.fullName || 'مستخدم النظام';
+
+    if (activeReport === 'R-01') {
+      const s = reportData.summary || {};
+      const totalTrays = filteredR01Records.reduce((acc: number, r: any) => acc + (Number(r.prod_Egg_Trays) || 0), 0);
+      const totalDamaged = filteredR01Records.reduce((acc: number, r: any) => acc + (Number(r.damaged_eggs) || 0), 0);
+      const totalCull = filteredR01Records.reduce((acc: number, r: any) => acc + (Number(r.cull_eggs) || 0), 0);
+      const totalNet = filteredR01Records.reduce((acc: number, r: any) => acc + (Number(r.net_trays) || 0), 0);
+      const totalMort = filteredR01Records.reduce((acc: number, r: any) => acc + (Number(r.mortality_count) || 0), 0);
+      const totalFeed = filteredR01Records.reduce((acc: number, r: any) => acc + (Number(r.feed_consumed_kg) || 0), 0);
+
+      return {
+        reportCode: 'R-01',
+        reportTitle: currentTabInfo.title,
+        reportSubtitle: currentTabInfo.subtitle,
+        periodLabel: periodText,
+        exportedBy: exporterName,
+        summaryCards: [
+          { label: 'إجمالي أطباق البيض', value: `${(s.totalEggTrays || 0).toLocaleString('ar-EG')} طبق` },
+          { label: 'الأطباق السليمة الصافية', value: `${(s.totalNetTrays || 0).toLocaleString('ar-EG')} طبق` },
+          { label: 'إجمالي النفوق المسجل', value: `${(s.totalMortality || 0).toLocaleString('ar-EG')} طير` },
+          { label: 'إجمالي استهلاك الأعلاف', value: `${(s.totalFeedKg || 0).toLocaleString('ar-EG')} كجم` }
+        ],
+        headers: ['التاريخ', 'الهنجر', 'القطيع', 'إجمالي البيض (طبق)', 'الكسر', 'الفرز', 'الصافي السليم', 'النفوق', 'العلف (كجم)', 'المشرف'],
+        rows: filteredR01Records.map((r: any) => [
+          r.record_date,
+          r.house_name,
+          r.flock_code,
+          r.prod_Egg_Trays,
+          r.damaged_eggs,
+          r.cull_eggs,
+          r.net_trays,
+          r.mortality_count,
+          r.feed_consumed_kg,
+          r.recorded_by_name
+        ]),
+        footerSummaryRow: [
+          'الإجمالي العام',
+          `${filteredR01Records.length} سجل`,
+          '—',
+          totalTrays,
+          totalDamaged,
+          totalCull,
+          totalNet,
+          totalMort,
+          `${totalFeed} كجم`,
+          '—'
+        ],
+        filename: `Report-R01-Daily-Production-${getLocalTodayDateString()}.pdf`
+      };
+    } else if (activeReport === 'R-02') {
+      const s = reportData.summary || {};
+      const totalItemsCount = filteredR02Requisitions.reduce((acc: number, r: any) => acc + (Number(r.items_count) || 0), 0);
+      return {
+        reportCode: 'R-02',
+        reportTitle: currentTabInfo.title,
+        reportSubtitle: currentTabInfo.subtitle,
+        periodLabel: periodText,
+        exportedBy: exporterName,
+        summaryCards: [
+          { label: 'إجمالي الطلبات', value: `${s.totalRequests || 0} طلب` },
+          { label: 'قيد المراجعة والانتظار', value: `${(s.submitted || 0) + (s.underReview || 0)} طلب` },
+          { label: 'معتمدة ومكتملة', value: `${(s.approved || 0) + (s.completed || 0)} طلب` },
+          { label: 'مرفوضة', value: `${s.rejected || 0} طلب` }
+        ],
+        headers: ['رقم الطلب', 'التصنيف', 'الهنجر', 'مقدم الطلب', 'المراجع / المعتمد', 'عدد البنود', 'تاريخ الطلب', 'الحالة'],
+        rows: filteredR02Requisitions.map((req: any) => [
+          req.request_no,
+          reqTypeLabels[req.req_type] || req.req_type,
+          req.house_name || 'عام للمزرعة',
+          req.requester_name,
+          req.reviewer_name || '—',
+          `${req.items_count} صنف`,
+          req.request_date,
+          statusLabels[req.status] || req.status
+        ]),
+        footerSummaryRow: [
+          'الإجمالي العام',
+          `${filteredR02Requisitions.length} طلب`,
+          '—',
+          '—',
+          '—',
+          `${totalItemsCount} صنف`,
+          '—',
+          '—'
+        ],
+        filename: `Report-R02-Requisitions-${getLocalTodayDateString()}.pdf`
+      };
+    } else if (activeReport === 'R-03') {
+      const s = reportData.summary || {};
+      const sumSub = filteredR03Invoices.reduce((acc: number, inv: any) => acc + (Number(inv.subtotal) || 0), 0);
+      const sumTax = filteredR03Invoices.reduce((acc: number, inv: any) => acc + (Number(inv.tax_amount) || 0), 0);
+      const sumTotal = filteredR03Invoices.reduce((acc: number, inv: any) => acc + (Number(inv.total_amount) || 0), 0);
+      return {
+        reportCode: 'R-03',
+        reportTitle: currentTabInfo.title,
+        reportSubtitle: currentTabInfo.subtitle,
+        periodLabel: periodText,
+        exportedBy: exporterName,
+        summaryCards: [
+          { label: 'إجمالي الفواتير', value: `${s.totalInvoices || 0} فاتورة` },
+          { label: 'صافي المبيعات', value: formatCurrency(s.totalSubtotal || 0) },
+          { label: 'إجمالي الضرائب', value: formatCurrency(s.totalTax || 0) },
+          { label: 'الإجمالي العام (YER)', value: formatCurrency(s.grandTotalRevenue || 0) }
+        ],
+        headers: ['رقم الفاتورة', 'العميل', 'التاريخ', 'المجموع الفرعي', 'الضريبة', 'الإجمالي النهائي (YER)', 'حالة السداد'],
+        rows: filteredR03Invoices.map((inv: any) => [
+          inv.invoice_no,
+          inv.customer_name,
+          inv.invoice_date,
+          formatCurrency(inv.subtotal),
+          formatCurrency(inv.tax_amount),
+          formatCurrency(inv.total_amount),
+          statusLabels[inv.payment_status] || inv.payment_status
+        ]),
+        footerSummaryRow: [
+          'الإجمالي العام',
+          `${filteredR03Invoices.length} فاتورة`,
+          '—',
+          formatCurrency(sumSub),
+          formatCurrency(sumTax),
+          formatCurrency(sumTotal),
+          '—'
+        ],
+        filename: `Report-R03-Sales-Summary-${getLocalTodayDateString()}.pdf`
+      };
+    } else if (activeReport === 'R-04') {
+      const s = reportData.summary || {};
+      const sumSupplied = filteredR04Receipts.reduce((acc: number, rcp: any) => acc + (Number(rcp.quantity) || 0), 0);
+      return {
+        reportCode: 'R-04',
+        reportTitle: currentTabInfo.title,
+        reportSubtitle: currentTabInfo.subtitle,
+        periodLabel: periodText,
+        exportedBy: exporterName,
+        summaryCards: [
+          { label: 'سندات التوريد', value: `${s.totalReceipts || 0} سند` },
+          { label: 'إجمالي الكميات الموردة', value: `${(s.totalSuppliedQuantity || 0).toLocaleString('ar-EG')} وحدة` },
+          { label: 'الأصناف النشطة', value: `${reportData.currentStockLevels?.length || 0} صنف` },
+          { label: 'أصناف منخفضة الرصيد', value: `${s.lowStockItemsCount || 0} صنف` }
+        ],
+        headers: ['رقم السند', 'المستودع', 'الصنف المورد', 'الكمية الموردة', 'المورد / الدفعة', 'تاريخ التوريد', 'المستلم'],
+        rows: filteredR04Receipts.map((rcp: any) => [
+          rcp.receipt_no,
+          rcp.warehouse_name,
+          rcp.product_name,
+          `+${rcp.quantity} ${rcp.unit}`,
+          `${rcp.supplier_name} (${rcp.batch_no || '—'})`,
+          rcp.receipt_date,
+          rcp.received_by_name
+        ]),
+        footerSummaryRow: [
+          'الإجمالي العام',
+          `${filteredR04Receipts.length} سند`,
+          '—',
+          `+${sumSupplied} وحدة`,
+          '—',
+          '—',
+          '—'
+        ],
+        filename: `Report-R04-Warehouse-Movement-${getLocalTodayDateString()}.pdf`
+      };
+    } else {
+      const s = reportData.summary || {};
+      const sumVal = filteredR05Products.reduce((acc: number, p: any) => acc + (Number(p.stock_valuation) || 0), 0);
+      return {
+        reportCode: 'R-05',
+        reportTitle: currentTabInfo.title,
+        reportSubtitle: currentTabInfo.subtitle,
+        periodLabel: periodText,
+        exportedBy: exporterName,
+        summaryCards: [
+          { label: 'القيمة التقديرية للمخزون', value: formatCurrency(s.totalInventoryValuation || 0) },
+          { label: 'إجمالي المبيعات المعتمدة', value: formatCurrency(s.totalRevenue || 0) },
+          { label: 'المبالغ المحصلة (PAID)', value: formatCurrency(s.paidRevenue || 0) },
+          { label: 'ذمم قيد التحصيل (PENDING)', value: formatCurrency(s.pendingReceivables || 0) }
+        ],
+        headers: ['كود الصنف', 'اسم الصنف', 'الفئة', 'الرصيد الحالي', 'سعر الوحدة (YER)', 'القيمة الإجمالية (YER)', 'الحالة'],
+        rows: filteredR05Products.map((p: any) => [
+          p.product_code,
+          p.product_name,
+          p.category,
+          `${p.current_stock} ${p.unit}`,
+          formatCurrency(p.unit_price),
+          formatCurrency(p.stock_valuation),
+          p.current_stock <= 0 ? 'نفد المخزون' : p.current_stock <= p.min_stock_alert ? 'تحت الحد الأدنى' : 'رصيد آمن'
+        ]),
+        footerSummaryRow: [
+          'الإجمالي العام',
+          `${filteredR05Products.length} صنف`,
+          '—',
+          '—',
+          '—',
+          formatCurrency(sumVal),
+          '—'
+        ],
+        filename: `Report-R05-Financial-Inventory-${getLocalTodayDateString()}.pdf`
+      };
+    }
+  };
+
+  const handlePrint = () => {
+    const cfg = getReportDocumentConfig();
+    if (!cfg) return;
+    printReportDocument(cfg);
+  };
+
   const handleExportReportPdf = async () => {
-    if (!reportData) return;
+    const cfg = getReportDocumentConfig();
+    if (!cfg) return;
     try {
       setExportingPdf(true);
-      const periodText = `${appliedDates.start || 'من البداية'} إلى ${appliedDates.end || 'حتى الآن'}${
-        reportSearchKw.trim() ? ` — بحث: "${reportSearchKw.trim()}"` : ''
-      }`;
-      const exporterName = user?.fullName || 'مستخدم النظام';
-
-      if (activeReport === 'R-01') {
-        const s = reportData.summary || {};
-        await exportReportToPdf({
-          reportCode: 'R-01',
-          reportTitle: currentTabInfo.title,
-          reportSubtitle: currentTabInfo.subtitle,
-          periodLabel: periodText,
-          exportedBy: exporterName,
-          summaryCards: [
-            { label: 'إجمالي أطباق البيض', value: `${(s.totalEggTrays || 0).toLocaleString('ar-EG')} طبق` },
-            { label: 'الأطباق السليمة الصافية', value: `${(s.totalNetTrays || 0).toLocaleString('ar-EG')} طبق` },
-            { label: 'إجمالي النفوق المسجل', value: `${(s.totalMortality || 0).toLocaleString('ar-EG')} طير` },
-            { label: 'إجمالي استهلاك الأعلاف', value: `${(s.totalFeedKg || 0).toLocaleString('ar-EG')} كجم` }
-          ],
-          headers: ['التاريخ', 'الهنجر', 'القطيع', 'إجمالي البيض (طبق)', 'الكسر', 'الفرز', 'الصافي السليم', 'النفوق', 'العلف (كجم)', 'المشرف'],
-          rows: filteredR01Records.map((r: any) => [
-            r.record_date,
-            r.house_name,
-            r.flock_code,
-            r.prod_Egg_Trays,
-            r.damaged_eggs,
-            r.cull_eggs,
-            r.net_trays,
-            r.mortality_count,
-            r.feed_consumed_kg,
-            r.recorded_by_name
-          ]),
-          filename: `Report-R01-Daily-Production-${getLocalTodayDateString()}.pdf`
-        });
-      } else if (activeReport === 'R-02') {
-        const s = reportData.summary || {};
-        await exportReportToPdf({
-          reportCode: 'R-02',
-          reportTitle: currentTabInfo.title,
-          reportSubtitle: currentTabInfo.subtitle,
-          periodLabel: periodText,
-          exportedBy: exporterName,
-          summaryCards: [
-            { label: 'إجمالي الطلبات', value: `${s.totalRequests || 0} طلب` },
-            { label: 'قيد المراجعة والانتظار', value: `${(s.submitted || 0) + (s.underReview || 0)} طلب` },
-            { label: 'معتمدة ومكتملة', value: `${(s.approved || 0) + (s.completed || 0)} طلب` },
-            { label: 'مرفوضة', value: `${s.rejected || 0} طلب` }
-          ],
-          headers: ['رقم الطلب', 'التصنيف', 'الهنجر', 'مقدم الطلب', 'المراجع / المعتمد', 'عدد البنود', 'تاريخ الطلب', 'الحالة'],
-          rows: filteredR02Requisitions.map((req: any) => [
-            req.request_no,
-            reqTypeLabels[req.req_type] || req.req_type,
-            req.house_name || 'عام للمزرعة',
-            req.requester_name,
-            req.reviewer_name || '—',
-            `${req.items_count} صنف`,
-            req.request_date,
-            statusLabels[req.status] || req.status
-          ]),
-          filename: `Report-R02-Requisitions-${getLocalTodayDateString()}.pdf`
-        });
-      } else if (activeReport === 'R-03') {
-        const s = reportData.summary || {};
-        await exportReportToPdf({
-          reportCode: 'R-03',
-          reportTitle: currentTabInfo.title,
-          reportSubtitle: currentTabInfo.subtitle,
-          periodLabel: periodText,
-          exportedBy: exporterName,
-          summaryCards: [
-            { label: 'إجمالي الفواتير', value: `${s.totalInvoices || 0} فاتورة` },
-            { label: 'صافي المبيعات', value: formatCurrency(s.totalSubtotal || 0) },
-            { label: 'إجمالي الضرائب', value: formatCurrency(s.totalTax || 0) },
-            { label: 'الإجمالي العام (YER)', value: formatCurrency(s.grandTotalRevenue || 0) }
-          ],
-          headers: ['رقم الفاتورة', 'العميل', 'التاريخ', 'المجموع الفرعي', 'الضريبة', 'الإجمالي النهائي (YER)', 'حالة السداد'],
-          rows: filteredR03Invoices.map((inv: any) => [
-            inv.invoice_no,
-            inv.customer_name,
-            inv.invoice_date,
-            formatCurrency(inv.subtotal),
-            formatCurrency(inv.tax_amount),
-            formatCurrency(inv.total_amount),
-            statusLabels[inv.payment_status] || inv.payment_status
-          ]),
-          filename: `Report-R03-Sales-Summary-${getLocalTodayDateString()}.pdf`
-        });
-      } else if (activeReport === 'R-04') {
-        const s = reportData.summary || {};
-        await exportReportToPdf({
-          reportCode: 'R-04',
-          reportTitle: currentTabInfo.title,
-          reportSubtitle: currentTabInfo.subtitle,
-          periodLabel: periodText,
-          exportedBy: exporterName,
-          summaryCards: [
-            { label: 'سندات التوريد', value: `${s.totalReceipts || 0} سند` },
-            { label: 'إجمالي الكميات الموردة', value: `${(s.totalSuppliedQuantity || 0).toLocaleString('ar-EG')} وحدة` },
-            { label: 'الأصناف النشطة', value: `${reportData.currentStockLevels?.length || 0} صنف` },
-            { label: 'أصناف منخفضة الرصيد', value: `${s.lowStockItemsCount || 0} صنف` }
-          ],
-          headers: ['رقم السند', 'المستودع', 'الصنف المورد', 'الكمية الموردة', 'المورد / الدفعة', 'تاريخ التوريد', 'المستلم'],
-          rows: filteredR04Receipts.map((rcp: any) => [
-            rcp.receipt_no,
-            rcp.warehouse_name,
-            rcp.product_name,
-            `+${rcp.quantity} ${rcp.unit}`,
-            `${rcp.supplier_name} (${rcp.batch_no || '—'})`,
-            rcp.receipt_date,
-            rcp.received_by_name
-          ]),
-          filename: `Report-R04-Warehouse-Movement-${getLocalTodayDateString()}.pdf`
-        });
-      } else if (activeReport === 'R-05') {
-        const s = reportData.summary || {};
-        await exportReportToPdf({
-          reportCode: 'R-05',
-          reportTitle: currentTabInfo.title,
-          reportSubtitle: currentTabInfo.subtitle,
-          periodLabel: periodText,
-          exportedBy: exporterName,
-          summaryCards: [
-            { label: 'القيمة التقديرية للمخزون', value: formatCurrency(s.totalInventoryValuation || 0) },
-            { label: 'إجمالي المبيعات المعتمدة', value: formatCurrency(s.totalRevenue || 0) },
-            { label: 'المبالغ المحصلة (PAID)', value: formatCurrency(s.paidRevenue || 0) },
-            { label: 'ذمم قيد التحصيل (PENDING)', value: formatCurrency(s.pendingReceivables || 0) }
-          ],
-          headers: ['كود الصنف', 'اسم الصنف', 'الفئة', 'الرصيد الحالي', 'سعر الوحدة (YER)', 'القيمة الإجمالية (YER)', 'الحالة'],
-          rows: filteredR05Products.map((p: any) => [
-            p.product_code,
-            p.product_name,
-            p.category,
-            `${p.current_stock} ${p.unit}`,
-            formatCurrency(p.unit_price),
-            formatCurrency(p.stock_valuation),
-            p.current_stock <= 0 ? 'نفد المخزون' : p.current_stock <= p.min_stock_alert ? 'تحت الحد الأدنى' : 'رصيد آمن'
-          ]),
-          filename: `Report-R05-Financial-Inventory-${getLocalTodayDateString()}.pdf`
-        });
-      }
+      await exportReportToPdf(cfg);
     } catch (err) {
       console.error('Failed to export report PDF:', err);
     } finally {
@@ -447,22 +531,45 @@ export const ReportsView: React.FC = () => {
       {/* Screen Header (Hidden in Print) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs no-print">
         <div>
-          <h1 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors ml-1"
+                title="رجوع"
+              >
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
             <FileBarChart className="w-5 h-5 text-emerald-700 shrink-0" />
-            <span>منظومة التقارير التشغيلية والمالية المعتمدة</span>
-          </h1>
+            <h1 className="text-base sm:text-lg font-bold text-slate-900">
+              منظومة التقارير التشغيلية والمالية المعتمدة
+            </h1>
+          </div>
           <p className="text-xs text-slate-500 mt-1">
             استخراج وطباعة التقارير الرسمية شاملة الترويسة المعتمدة لشركة نتش رول جروث والتوقيعات
           </p>
         </div>
 
-        <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto">
+        <div className="grid grid-cols-3 sm:flex items-center gap-2 w-full sm:w-auto">
+          <button
+            id="btn-preview-report-a4"
+            type="button"
+            disabled={loading || !reportData}
+            onClick={() => setIsPreviewOpen(true)}
+            className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-50 text-emerald-900 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors shadow-2xs min-h-[42px]"
+          >
+            <Eye className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>معاينة A4</span>
+          </button>
+
           <button
             id="btn-export-report-pdf"
             type="button"
             disabled={loading || exportingPdf || !reportData}
             onClick={handleExportReportPdf}
-            className="flex items-center justify-center gap-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-sm min-h-[42px]"
+            className="flex items-center justify-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-sm min-h-[42px]"
           >
             <FileDown className="w-4 h-4 shrink-0" />
             <span>{exportingPdf ? 'جاري التصدير...' : 'تصدير PDF'}</span>
@@ -471,11 +578,12 @@ export const ReportsView: React.FC = () => {
           <button
             id="btn-print-report"
             type="button"
+            disabled={loading || !reportData}
             onClick={handlePrint}
-            className="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-sm min-h-[42px]"
+            className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-sm min-h-[42px]"
           >
             <Printer className="w-4 h-4 shrink-0" />
-            <span>طباعة التقرير</span>
+            <span>طباعة A4</span>
           </button>
         </div>
       </div>
@@ -582,6 +690,7 @@ export const ReportsView: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
           <div className="sm:col-span-1 lg:col-span-4">
             <DateInput
+              key={`start-${dateResetKey}`}
               id="report-start-date"
               label="من تاريخ"
               value={startDate}
@@ -599,6 +708,7 @@ export const ReportsView: React.FC = () => {
 
           <div className="sm:col-span-1 lg:col-span-4">
             <DateInput
+              key={`end-${dateResetKey}`}
               id="report-end-date"
               label="إلى تاريخ"
               value={endDate}
@@ -624,7 +734,7 @@ export const ReportsView: React.FC = () => {
               <Filter className="w-4 h-4 shrink-0" />
               <span>تطبيق الفلترة</span>
             </button>
-            {(startDate || endDate || appliedDates.start || appliedDates.end) && (
+            {(startDate || endDate || appliedDates.start || appliedDates.end || !startDateValid || !endDateValid) && (
               <button
                 id="btn-reset-report-filter"
                 type="button"
@@ -1416,6 +1526,22 @@ export const ReportsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* OFFICIAL A4 DOCUMENT PREVIEW MODAL FOR OPERATIONAL & FINANCIAL REPORTS */}
+      <DocumentPreviewModal
+        isOpen={isPreviewOpen && !!reportData}
+        onClose={() => setIsPreviewOpen(false)}
+        title={`${currentTabInfo.title} (${activeReport})`}
+        subtitle={`${currentTabInfo.subtitle} — الفترة: ${appliedDates.start || 'من البداية'} إلى ${appliedDates.end || 'حتى الآن'}`}
+        documentHtml={(() => {
+          const cfg = getReportDocumentConfig();
+          return cfg ? buildReportDocumentHtml(cfg) : '';
+        })()}
+        onPrint={handlePrint}
+        onExportPdf={handleExportReportPdf}
+        exportingPdf={exportingPdf}
+        backLabel="رجوع للتقرير"
+      />
     </div>
   );
 };

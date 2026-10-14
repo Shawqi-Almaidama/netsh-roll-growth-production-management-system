@@ -1,12 +1,13 @@
 import { Router, Response } from 'express';
 import { db } from '../db.js';
 import { authenticate, requireRoles, AuthenticatedRequest, triggerLowStockNotifications } from '../auth.js';
+import { getLocalTodayDateString, getLocalTodayCompactStamp } from '../../src/utils/date.js';
 
 const router = Router();
 
 // Generate distinct Invoice Number: INV-YYYYMMDD-XXXX (verified unique in DB)
 function generateInvoiceNo(): string {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const dateStr = getLocalTodayCompactStamp();
   const maxRecord = db.prepare('SELECT COALESCE(MAX(id), 0) as maxId FROM SALES_INVOICES').get() as any;
   let nextNum = (maxRecord?.maxId || 0) + 1;
   const checkStmt = db.prepare('SELECT 1 FROM SALES_INVOICES WHERE invoice_no = ?');
@@ -81,7 +82,7 @@ router.get('/invoices/:id', authenticate, requireRoles('SALES_OFFICER', 'ACCOUNT
     SELECT inv.*,
            inv.payment_status as status,
            c.customer_name, c.customer_code, c.phone as customer_phone,
-           c.address as customer_address, c.tax_number as customer_tax,
+           c.address as customer_address, c.commercial_reg, c.tax_number, c.tax_number as customer_tax,
            u.full_name as issuer_name, u.full_name as created_by_name
     FROM SALES_INVOICES inv
     JOIN CUSTOMERS c ON inv.customer_id = c.id
@@ -221,7 +222,7 @@ router.post('/invoices', authenticate, requireRoles('SALES_OFFICER', 'ADMIN'), (
   const computedTax = Number(((taxable * taxPct) / 100).toFixed(2));
   const computedTotal = Number((taxable + computedTax).toFixed(2));
 
-  const invDate = invoiceDate || new Date().toISOString().slice(0, 10);
+  const invDate = invoiceDate || getLocalTodayDateString();
 
   // EXECUTE ATOMIC TRANSACTION (BR-03 & Consistency Rule 33)
   try {

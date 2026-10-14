@@ -14,6 +14,7 @@ import {
   AlertCircle,
   ArrowRight,
   Download,
+  Printer,
   X
 } from 'lucide-react';
 import { api } from '../api.js';
@@ -27,9 +28,14 @@ import {
   Flock
 } from '../types.js';
 import { Modal } from '../components/ui/Modal.js';
+import { DocumentPreviewModal } from '../components/ui/DocumentPreviewModal.js';
 import { Badge } from '../components/ui/Badge.js';
 import { DateInput } from '../components/ui/DateInput.js';
-import { exportRequisitionPDF } from '../utils/pdfExport.js';
+import {
+  buildRequisitionDocumentHtml,
+  exportRequisitionPDF,
+  printRequisitionDocument
+} from '../utils/pdfExport.js';
 import { getLocalTodayDateString } from '../utils/date.js';
 
 interface RequisitionsViewProps {
@@ -67,6 +73,7 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
   // Selected Requisition Details Modal
   const [selectedReq, setSelectedReq] = useState<Requisition | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -106,12 +113,12 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
       const [reqRes, farmsRes, housesRes, flocksRes, feedRes, treatRes, suppRes] =
         await Promise.all([
           api.getRequisitions(),
-          api.getFarms(),
-          api.getHouses(),
-          api.getFlocks(),
-          api.getFeedCatalog(),
-          api.getTreatmentCatalog(),
-          api.getSupplyCatalog()
+          canCreate ? api.getFarms() : Promise.resolve({ success: true, farms: [] }),
+          canCreate ? api.getHouses() : Promise.resolve({ success: true, houses: [] }),
+          canCreate ? api.getFlocks() : Promise.resolve({ success: true, flocks: [] }),
+          canCreate ? api.getFeedCatalog() : Promise.resolve({ success: true, items: [] }),
+          canCreate ? api.getTreatmentCatalog() : Promise.resolve({ success: true, items: [] }),
+          canCreate ? api.getSupplyCatalog() : Promise.resolve({ success: true, items: [] })
         ]);
 
       if (reqRes.success) {
@@ -120,17 +127,17 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
         );
         setRequisitions(uniqueReqs);
       }
-      if (farmsRes.success) setFarms(farmsRes.farms);
-      if (housesRes.success) {
+      if (farmsRes.success && farmsRes.farms) setFarms(farmsRes.farms);
+      if (housesRes.success && housesRes.houses) {
         const uniqueHouses = Array.from(
           new Map((housesRes.houses || []).map((h: any) => [h.id, h])).values()
         );
         setHouses(uniqueHouses);
       }
-      if (flocksRes.success) setFlocks(flocksRes.flocks);
-      if (feedRes.success) setFeedCatalog(feedRes.items);
-      if (treatRes.success) setTreatmentCatalog(treatRes.items);
-      if (suppRes.success) setSupplyCatalog(suppRes.items);
+      if (flocksRes.success && flocksRes.flocks) setFlocks(flocksRes.flocks);
+      if (feedRes.success && feedRes.items) setFeedCatalog(feedRes.items);
+      if (treatRes.success && treatRes.items) setTreatmentCatalog(treatRes.items);
+      if (suppRes.success && suppRes.items) setSupplyCatalog(suppRes.items);
     } catch (err) {
       console.error('Error loading requisitions data:', err);
     } finally {
@@ -368,6 +375,38 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
     }
   };
 
+  const handleOpenPreview = async (id: number) => {
+    try {
+      if (selectedReq && selectedReq.id === id && selectedReq.items) {
+        setIsPreviewOpen(true);
+      } else {
+        const res = await api.getRequisitionDetails(id);
+        if (res.success && res.requisition) {
+          setSelectedReq(res.requisition);
+          setIsPreviewOpen(true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to open requisition preview:', err);
+    }
+  };
+
+  const handlePrintReq = async (id: number) => {
+    try {
+      if (selectedReq && selectedReq.id === id && selectedReq.items) {
+        printRequisitionDocument(selectedReq, user?.fullName);
+      } else {
+        const res = await api.getRequisitionDetails(id);
+        if (res.success && res.requisition) {
+          setSelectedReq(res.requisition);
+          printRequisitionDocument(res.requisition, user?.fullName);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to print requisition:', err);
+    }
+  };
+
   const filteredRequisitions = requisitions.filter((r) => {
     if (typeFilter !== 'all' && r.req_type !== typeFilter) return false;
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
@@ -403,12 +442,18 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <div className="flex items-center gap-2">
-            {onBack && (
+            {(onBack || activeTab === 'create') && (
               <button
                 type="button"
-                onClick={onBack}
+                onClick={() => {
+                  if (activeTab === 'create') {
+                    setActiveTab('list');
+                  } else if (onBack) {
+                    onBack();
+                  }
+                }}
                 className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors ml-1"
-                title="رجوع"
+                title={activeTab === 'create' ? 'رجوع لسجل الطلبات' : 'رجوع'}
               >
                 <ArrowRight className="w-4 h-4" />
               </button>
@@ -652,23 +697,31 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="grid grid-cols-3 gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => handleOpenDetails(req.id)}
-                          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-colors min-h-[40px]"
+                          className="flex items-center justify-center gap-1 py-2 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-colors min-h-[40px]"
                         >
-                          <Eye className="w-4 h-4 text-slate-600" />
-                          <span>تفاصيل ومراجعة</span>
+                          <Eye className="w-3.5 h-3.5 text-slate-600" />
+                          <span>مراجعة</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPreview(req.id)}
+                          className="flex items-center justify-center gap-1 py-2 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors min-h-[40px]"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>معاينة A4</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleExportReqPDF(req.id)}
                           disabled={pdfExportingId === req.id}
-                          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50 min-h-[40px]"
+                          className="flex items-center justify-center gap-1 py-2 px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50 min-h-[40px]"
                         >
-                          <Download className="w-4 h-4" />
-                          <span>{pdfExportingId === req.id ? 'جاري التصدير...' : 'تصدير PDF'}</span>
+                          <Download className="w-3.5 h-3.5" />
+                          <span>{pdfExportingId === req.id ? '...' : 'PDF'}</span>
                         </button>
                       </div>
                     </div>
@@ -771,6 +824,15 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
                               >
                                 <Eye className="w-3.5 h-3.5 text-slate-600" />
                                 <span>تفاصيل</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPreview(req.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition-colors"
+                                title="معاينة وطباعة النموذج الرسمي A4"
+                              >
+                                <Printer className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>معاينة A4</span>
                               </button>
                               <button
                                 type="button"
@@ -1380,8 +1442,27 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
               </div>
             )}
 
-            {/* Footer with PDF Export and Close */}
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            {/* Footer with A4 Preview, Print, PDF Export and Close */}
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDetailsOpen(false);
+                  setIsPreviewOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors min-h-[42px]"
+              >
+                <Eye className="w-4 h-4 text-emerald-700" />
+                <span>معاينة المستند A4</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePrintReq(selectedReq.id)}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors min-h-[42px]"
+              >
+                <Printer className="w-4 h-4" />
+                <span>طباعة A4</span>
+              </button>
               <button
                 type="button"
                 onClick={() => handleExportReqPDF(selectedReq.id)}
@@ -1404,6 +1485,29 @@ export const RequisitionsView: React.FC<RequisitionsViewProps> = ({
           </div>
         )}
       </Modal>
+
+      {/* OFFICIAL A4 DOCUMENT PREVIEW MODAL FOR REQUISITIONS */}
+      <DocumentPreviewModal
+        isOpen={isPreviewOpen && !!selectedReq}
+        onClose={() => setIsPreviewOpen(false)}
+        title={`نموذج طلب احتياج تشغيلي رقم: ${selectedReq?.request_no || ''}`}
+        subtitle={`مقدم الطلب: ${selectedReq?.requester_name || '-'} | التاريخ: ${selectedReq?.request_date || '-'} | الحالة: ${selectedReq ? statusArabic[selectedReq.status]?.label || selectedReq.status : '-'}`}
+        documentHtml={
+          selectedReq ? buildRequisitionDocumentHtml(selectedReq, user?.fullName) : ''
+        }
+        onPrint={() => {
+          if (selectedReq) {
+            handlePrintReq(selectedReq.id);
+          }
+        }}
+        onExportPdf={() => {
+          if (selectedReq) {
+            return handleExportReqPDF(selectedReq.id);
+          }
+        }}
+        exportingPdf={selectedReq ? pdfExportingId === selectedReq.id : false}
+        backLabel="رجوع لسجل الطلبات"
+      />
     </div>
   );
 };

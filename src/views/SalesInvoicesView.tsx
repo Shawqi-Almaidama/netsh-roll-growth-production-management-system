@@ -14,10 +14,15 @@ import { api } from '../api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { SalesInvoice, Product, Customer, SalesInvoiceItem } from '../types.js';
 import { Modal } from '../components/ui/Modal.js';
+import { DocumentPreviewModal } from '../components/ui/DocumentPreviewModal.js';
 import { Badge } from '../components/ui/Badge.js';
 import { DateInput } from '../components/ui/DateInput.js';
 import { formatCurrency } from '../utils/currency.js';
-import { exportSalesInvoicePDF } from '../utils/pdfExport.js';
+import {
+  buildSalesInvoiceDocumentHtml,
+  exportSalesInvoicePDF,
+  printSalesInvoiceDocument
+} from '../utils/pdfExport.js';
 import { getLocalTodayDateString } from '../utils/date.js';
 
 const paymentStatusLabels: Record<
@@ -204,13 +209,12 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
   const handleViewDetails = async (id: number, autoPrint = false) => {
     try {
       const res = await api.getSalesInvoiceDetails(id);
-      if (res.success) {
+      if (res.success && res.invoice) {
         setSelectedInvoice(res.invoice);
-        setIsViewOpen(true);
         if (autoPrint) {
-          setTimeout(() => {
-            window.print();
-          }, 150);
+          printSalesInvoiceDocument(res.invoice, user?.fullName);
+        } else {
+          setIsViewOpen(true);
         }
       }
     } catch (err) {
@@ -242,7 +246,7 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
 
   const handlePrintSelectedInvoice = () => {
     if (!selectedInvoice) return;
-    window.print();
+    printSalesInvoiceDocument(selectedInvoice, user?.fullName);
   };
 
   const filteredInvoices = invoices.filter((inv) => {
@@ -869,364 +873,24 @@ export const SalesInvoicesView: React.FC<{ onBack?: () => void }> = ({ onBack })
         </form>
       </Modal>
 
-      {/* MODAL: VIEW INVOICE DETAILS */}
-      <Modal
-        isOpen={isViewOpen}
+      {/* OFFICIAL A4 DOCUMENT PREVIEW MODAL FOR SALES INVOICES */}
+      <DocumentPreviewModal
+        isOpen={isViewOpen && !!selectedInvoice}
         onClose={() => setIsViewOpen(false)}
-        title={`تفاصيل فاتورة المبيعات: ${selectedInvoice?.invoice_no || ''}`}
-        maxWidth="max-w-2xl"
-      >
-        {selectedInvoice && (
-          <div className="space-y-4 text-xs">
-            {/* Invoice & Customer Metadata */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {/* Customer Info Box */}
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                <div className="font-black text-slate-800 border-b border-slate-200 pb-1.5 mb-1">
-                  بيانات العميل
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">اسم العميل:</span>
-                  <span className="font-bold text-slate-900">{selectedInvoice.customer_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">كود العميل:</span>
-                  <span className="font-mono font-bold text-slate-800">
-                    {selectedInvoice.customer_code}
-                  </span>
-                </div>
-                {selectedInvoice.customer_phone && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">رقم الهاتف:</span>
-                    <span className="font-mono text-slate-800">
-                      {selectedInvoice.customer_phone}
-                    </span>
-                  </div>
-                )}
-                {selectedInvoice.customer_address && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">العنوان:</span>
-                    <span className="text-slate-800">{selectedInvoice.customer_address}</span>
-                  </div>
-                )}
-                {selectedInvoice.customer_tax && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">الرقم الضريبي:</span>
-                    <span className="font-mono text-slate-800">{selectedInvoice.customer_tax}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Invoice Info Box */}
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                <div className="font-black text-slate-800 border-b border-slate-200 pb-1.5 mb-1">
-                  بيانات الفاتورة
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">رقم الفاتورة:</span>
-                  <span className="font-mono font-bold text-slate-900">
-                    {selectedInvoice.invoice_no}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">تاريخ الإصدار:</span>
-                  <span className="font-mono text-slate-800" dir="ltr">
-                    {selectedInvoice.invoice_date}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500">حالة الدفع:</span>
-                  <Badge
-                    variant={
-                      paymentStatusLabels[
-                        selectedInvoice.payment_status || selectedInvoice.status || 'PAID'
-                      ]?.variant || 'amber'
-                    }
-                  >
-                    {paymentStatusLabels[
-                      selectedInvoice.payment_status || selectedInvoice.status || 'PAID'
-                    ]?.label || selectedInvoice.payment_status}
-                  </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">مُصدر الفاتورة:</span>
-                  <span className="font-bold text-slate-800">
-                    {selectedInvoice.issuer_name || selectedInvoice.created_by_name}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Line Items Table */}
-            <div className="border border-slate-200 rounded-xl overflow-x-auto">
-              <table className="w-full min-w-[440px] text-right text-xs">
-                <thead className="bg-slate-100 text-slate-700">
-                  <tr>
-                    <th className="p-2.5 font-bold whitespace-nowrap">#</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">الصنف</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">الكمية</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">الوحدة</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">سعر الوحدة</th>
-                    <th className="p-2.5 font-bold text-left whitespace-nowrap">إجمالي السطر</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {invoiceLines.map((it, idx) => (
-                    <tr key={idx}>
-                      <td className="p-2.5 font-mono text-slate-400 whitespace-nowrap">
-                        {idx + 1}
-                      </td>
-                      <td className="p-2.5 font-bold text-slate-900 whitespace-nowrap">
-                        {it.product_name}
-                        {it.product_code && (
-                          <span className="text-[10px] font-mono text-slate-400 mr-1">
-                            ({it.product_code})
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-2.5 font-mono font-bold text-emerald-800 whitespace-nowrap">
-                        {it.quantity}
-                      </td>
-                      <td className="p-2.5 text-slate-600 whitespace-nowrap">{it.unit || '-'}</td>
-                      <td className="p-2.5 font-mono whitespace-nowrap">
-                        {formatCurrency(Number(it.unit_price ?? it.unitPrice ?? 0))}
-                      </td>
-                      <td className="p-2.5 font-mono font-bold text-slate-900 text-left whitespace-nowrap">
-                        {formatCurrency(Number(it.line_total ?? it.lineTotal ?? 0))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Financial Summary */}
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>المجموع الفرعي:</span>
-                <span className="font-mono font-medium">
-                  {formatCurrency(selectedInvoice.subtotal)}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>الخصم التجاري:</span>
-                <span className="font-mono font-medium text-rose-700">
-                  {formatCurrency(selectedInvoice.discount || 0)}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>الضريبة المضافة:</span>
-                <span className="font-mono">{formatCurrency(selectedInvoice.tax_amount)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-sm text-emerald-900 pt-2 border-t border-slate-200">
-                <span>الإجمالي النهائي المستحق:</span>
-                <span className="font-mono font-black">
-                  {formatCurrency(selectedInvoice.total_amount)}
-                </span>
-              </div>
-            </div>
-
-            {selectedInvoice.notes && (
-              <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl text-xs">
-                <span className="font-bold text-slate-700 block mb-0.5">ملاحظات الفاتورة:</span>
-                <span className="text-slate-700">{selectedInvoice.notes}</span>
-              </div>
-            )}
-
-            {/* Modal Footer Actions */}
-            <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              {canPrintInvoice && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleExportInvoicePDF(selectedInvoice.id)}
-                    disabled={pdfExportingId === selectedInvoice.id}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors disabled:opacity-50 min-h-[42px]"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>
-                      {pdfExportingId === selectedInvoice.id ? 'جاري التصدير...' : 'تصدير PDF'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePrintSelectedInvoice}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors min-h-[42px]"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>طباعة الفاتورة</span>
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsViewOpen(false)}
-                className="px-4 py-2.5 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-100 font-bold min-h-[42px]"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* FORMAL A4 PRINTABLE INVOICE DOCUMENT (ONLY VISIBLE IN @media print) */}
-      {selectedInvoice && canPrintInvoice && (
-        <div
-          className="hidden print:block printable-report-wrapper bg-white text-black p-4"
-          dir="rtl"
-        >
-          <div className="border-b-2 border-slate-800 pb-4 mb-5 flex justify-between items-start">
-            <div>
-              <h1 className="text-lg font-black text-slate-900">
-                شركة نتش رول جروث للتنمية والاستثمار الزراعي
-              </h1>
-              <p className="text-xs text-slate-700 mt-0.5">
-                نظام إدارة قسم الإنتاج والمبيعات — فاتورة مبيعات رسمية
-              </p>
-            </div>
-            <div className="text-left text-xs space-y-0.5">
-              <div className="font-mono font-black text-sm">
-                رقم الفاتورة: {selectedInvoice.invoice_no}
-              </div>
-              <div>
-                تاريخ الفاتورة:{' '}
-                <span className="font-mono" dir="ltr">
-                  {selectedInvoice.invoice_date}
-                </span>
-              </div>
-              <div>
-                حالة الدفع:{' '}
-                {paymentStatusLabels[
-                  selectedInvoice.payment_status || selectedInvoice.status || 'PAID'
-                ]?.label || selectedInvoice.payment_status}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-5 text-xs border border-slate-300 rounded-lg p-3">
-            <div className="space-y-1">
-              <div className="font-bold text-slate-900 border-b border-slate-200 pb-1 mb-1">
-                بيانات العميل
-              </div>
-              <div>
-                الاسم: <span className="font-bold">{selectedInvoice.customer_name}</span> (
-                {selectedInvoice.customer_code})
-              </div>
-              {selectedInvoice.customer_phone && (
-                <div>
-                  الهاتف: <span className="font-mono">{selectedInvoice.customer_phone}</span>
-                </div>
-              )}
-              {selectedInvoice.customer_address && (
-                <div>العنوان: {selectedInvoice.customer_address}</div>
-              )}
-              {selectedInvoice.customer_tax && (
-                <div>
-                  الرقم الضريبي: <span className="font-mono">{selectedInvoice.customer_tax}</span>
-                </div>
-              )}
-            </div>
-            <div className="space-y-1">
-              <div className="font-bold text-slate-900 border-b border-slate-200 pb-1 mb-1">
-                بيانات الإصدار
-              </div>
-              <div>
-                مُصدر الفاتورة:{' '}
-                <span className="font-bold">
-                  {selectedInvoice.issuer_name || selectedInvoice.created_by_name}
-                </span>
-              </div>
-              <div>
-                تاريخ الإنشاء:{' '}
-                <span className="font-mono">
-                  {selectedInvoice.created_at || selectedInvoice.invoice_date}
-                </span>
-              </div>
-              <div>
-                عدد البنود: <span className="font-mono">{invoiceLines.length}</span>
-              </div>
-            </div>
-          </div>
-
-          <table className="w-full text-right text-xs mb-5">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>كود الصنف</th>
-                <th>اسم المنتج</th>
-                <th>الكمية</th>
-                <th>الوحدة</th>
-                <th>سعر الوحدة</th>
-                <th>إجمالي السطر</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoiceLines.map((it, idx) => (
-                <tr key={`print-inv-line-${idx}`}>
-                  <td className="font-mono">{idx + 1}</td>
-                  <td className="font-mono">{it.product_code || '-'}</td>
-                  <td className="font-bold">{it.product_name}</td>
-                  <td className="font-mono font-bold">{it.quantity}</td>
-                  <td>{it.unit || '-'}</td>
-                  <td className="font-mono">
-                    {formatCurrency(Number(it.unit_price ?? it.unitPrice ?? 0))}
-                  </td>
-                  <td className="font-mono font-bold">
-                    {formatCurrency(Number(it.line_total ?? it.lineTotal ?? 0))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="grid grid-cols-2 gap-6 items-start text-xs mb-8">
-            <div>
-              {selectedInvoice.notes && (
-                <div className="border border-slate-300 rounded p-2.5">
-                  <div className="font-bold mb-1">ملاحظات الفاتورة:</div>
-                  <div>{selectedInvoice.notes}</div>
-                </div>
-              )}
-            </div>
-            <div className="border border-slate-400 rounded p-3 space-y-1.5">
-              <div className="flex justify-between">
-                <span>المجموع الفرعي:</span>
-                <span className="font-mono font-bold">
-                  {formatCurrency(selectedInvoice.subtotal)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>الخصم التجاري:</span>
-                <span className="font-mono">{formatCurrency(selectedInvoice.discount || 0)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>الضريبة المضافة:</span>
-                <span className="font-mono">{formatCurrency(selectedInvoice.tax_amount)}</span>
-              </div>
-              <div className="flex justify-between font-black text-sm border-t border-slate-400 pt-1.5">
-                <span>الإجمالي النهائي المستحق:</span>
-                <span className="font-mono">{formatCurrency(selectedInvoice.total_amount)}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-300 text-center text-xs">
-            <div>
-              <div className="font-bold mb-6">مُصدر الفاتورة (المبيعات)</div>
-              <div>{selectedInvoice.issuer_name || selectedInvoice.created_by_name}</div>
-            </div>
-            <div>
-              <div className="font-bold mb-6">المراجعة المالية (المحاسب)</div>
-              <div>........................................</div>
-            </div>
-            <div>
-              <div className="font-bold mb-6">توقيع المستلم (العميل)</div>
-              <div>........................................</div>
-            </div>
-          </div>
-        </div>
-      )}
+        title={`فاتورة مبيعات ضريبية رقم: ${selectedInvoice?.invoice_no || ''}`}
+        subtitle={`العميل: ${selectedInvoice?.customer_name || '-'} | تاريخ الإصدار: ${selectedInvoice?.invoice_date || '-'} | معاينة رسمية مطابقة للطباعة وPDF`}
+        documentHtml={
+          selectedInvoice ? buildSalesInvoiceDocumentHtml(selectedInvoice, user?.fullName) : ''
+        }
+        onPrint={handlePrintSelectedInvoice}
+        onExportPdf={() => {
+          if (selectedInvoice) {
+            return handleExportInvoicePDF(selectedInvoice.id);
+          }
+        }}
+        exportingPdf={selectedInvoice ? pdfExportingId === selectedInvoice.id : false}
+        backLabel="رجوع لسجل الفواتير"
+      />
     </div>
   );
 };

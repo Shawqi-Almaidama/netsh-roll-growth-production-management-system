@@ -21,7 +21,7 @@ router.get('/audit-test', authenticate, requireRoles('ADMIN'), (req: Authenticat
   const testSummary = runFullAcademicTestSuite();
   res.json({
     success: true,
-    suiteName: 'Natural Growth Academic Requirements & Rules Verification Suite (T-01 to T-25)',
+    suiteName: 'Natural Growth Academic Requirements & Rules Verification Suite (T-01 to T-42)',
     ...testSummary
   });
 });

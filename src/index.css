@@ -20,6 +20,8 @@
     /* Hide screen chrome completely */
     #main-navbar,
     #main-sidebar,
+    #mobile-bottom-nav,
+    [role="dialog"],
     .no-print,
     button,
     input,

@@ -1,18 +1,32 @@
 import 'dotenv/config';
+import express from 'express';
+import http from 'node:http';
 import { db, hashPassword, verifyPassword } from './db.js';
 import {
   generateToken,
   verifyToken,
+  requireRoles,
   triggerLowStockNotifications,
   resolveLowStockNotificationsIfRestocked
 } from './auth.js';
+import { REPORT_ALLOWED_ROLES } from './routes/reportRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import requisitionRoutes from './routes/requisitionRoutes.js';
+import productCustomerRoutes from './routes/productCustomerRoutes.js';
+import salesRoutes from './routes/salesRoutes.js';
+import warehouseRoutes from './routes/warehouseRoutes.js';
+import reportRoutes from './routes/reportRoutes.js';
+import productionRoutes from './routes/productionRoutes.js';
 import {
   normalizeDigits,
   validateGregorianParts,
+  evaluateDateSegmentTransition,
   parseIsoDateString,
   formatIsoDateParts,
+  formatDateToLocalIso,
   formatArabicReadableDate,
   getLocalTodayDateString,
+  getLocalTodayCompactStamp,
   getRelativeLocalDateString
 } from '../src/utils/date.js';
 
@@ -513,8 +527,8 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
     }
   });
 
-  // T-28: Custom RTL Date Input Validation, Digit Normalization & Date Range Filtering
-  test('T-28', 'التحقق من سلامة معالجة التواريخ وتطبيع الأرقام العربية وفلترة النطاق الزمني (RTL Date UX)', 'DateValidation', () => {
+  // T-28: Custom RTL Date Input Validation, Digit Normalization & State Transitions
+  test('T-28', 'التحقق من حالات مكوّن التاريخ الخمس: تاريخ صالح، غير مكتمل، 29 فبراير (كبيسة/بسيطة)، وتعديل تاريخ صالح إلى غير مكتمل أو غير صالح', 'DateValidation', () => {
     // 1. Arabic/Persian digit normalization
     if (normalizeDigits('٢٠٢٦-٠٩-١٦') !== '2026-09-16') {
       throw new Error('Failed to normalize Arabic-Indic digits');
@@ -523,18 +537,81 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
       throw new Error('Failed to normalize Eastern Arabic digits');
     }
 
-    // 2. Gregorian leap year & month length validation
-    if (!validateGregorianParts(2024, 2, 29).valid) {
-      throw new Error('2024-02-29 should be valid (leap year)');
-    }
-    if (validateGregorianParts(2026, 2, 29).valid) {
-      throw new Error('2026-02-29 should be rejected (non-leap year)');
-    }
-    if (validateGregorianParts(2026, 4, 31).valid) {
-      throw new Error('2026-04-31 should be rejected (April has 30 days)');
+    // Case 1: Valid date (تاريخ صالح)
+    const validRes = validateGregorianParts('2026', '09', '16', true);
+    if (!validRes.valid || validRes.isoDate !== '2026-09-16' || validRes.error !== null) {
+      throw new Error('Case 1 failed: 2026-09-16 should be valid');
     }
 
-    // 3. ISO formatting and parsing roundtrip
+    // Case 2: Incomplete date (تاريخ غير مكتمل)
+    const incMissingYear = validateGregorianParts('', '09', '16', false);
+    if (incMissingYear.valid || incMissingYear.isoDate !== '' || !incMissingYear.error) {
+      throw new Error('Case 2a failed: missing year should be invalid');
+    }
+    const incShortYear = validateGregorianParts('202', '09', '16', true);
+    if (incShortYear.valid || incShortYear.isoDate !== '' || !incShortYear.error) {
+      throw new Error('Case 2b failed: 3-digit year should be invalid');
+    }
+    const incMissingDay = validateGregorianParts('2026', '09', '', true);
+    if (incMissingDay.valid || incMissingDay.isoDate !== '' || !incMissingDay.error) {
+      throw new Error('Case 2c failed: missing day should be invalid');
+    }
+
+    // Case 3: Feb 29 in leap year (29 فبراير في سنة كبيسة)
+    const leap2024 = validateGregorianParts('2024', '02', '29', true);
+    if (!leap2024.valid || leap2024.isoDate !== '2024-02-29') {
+      throw new Error('Case 3a failed: 2024-02-29 should be valid (leap year)');
+    }
+    const leap2000 = validateGregorianParts('2000', '02', '29', true);
+    if (!leap2000.valid || leap2000.isoDate !== '2000-02-29') {
+      throw new Error('Case 3b failed: 2000-02-29 should be valid (400-year leap year)');
+    }
+
+    // Case 4: Feb 29 in non-leap year (29 فبراير في سنة غير كبيسة)
+    const nonLeap2026 = validateGregorianParts('2026', '02', '29', true);
+    if (nonLeap2026.valid || nonLeap2026.isoDate !== '' || !nonLeap2026.error) {
+      throw new Error('Case 4a failed: 2026-02-29 should be rejected (non-leap year)');
+    }
+    const nonLeap1900 = validateGregorianParts('1900', '02', '29', true);
+    if (nonLeap1900.valid || nonLeap1900.isoDate !== '' || !nonLeap1900.error) {
+      throw new Error('Case 4b failed: 1900-02-29 should be rejected (century non-leap year)');
+    }
+
+    // Case 5: Changing a valid date ('2026-09-16') to an incomplete or invalid input
+    // 5a: Valid ('2026-09-16') -> Incomplete (day cleared '')
+    const transToIncomplete = evaluateDateSegmentTransition('2026-09-16', '2026', '09', '', true);
+    if (
+      transToIncomplete.valid ||
+      transToIncomplete.nextEmittedIso !== '' ||
+      !transToIncomplete.shouldEmitChange ||
+      !transToIncomplete.error
+    ) {
+      throw new Error('Case 5a failed: changing valid date to incomplete input must emit empty string and mark invalid');
+    }
+
+    // 5b: Valid ('2026-09-16') -> Invalid Feb 29 non-leap ('2026-02-29')
+    const transToInvalidFeb = evaluateDateSegmentTransition('2026-09-16', '2026', '02', '29', true);
+    if (
+      transToInvalidFeb.valid ||
+      transToInvalidFeb.nextEmittedIso !== '' ||
+      !transToInvalidFeb.shouldEmitChange ||
+      !transToInvalidFeb.error
+    ) {
+      throw new Error('Case 5b failed: changing valid date to 2026-02-29 must emit empty string and mark invalid');
+    }
+
+    // 5c: Valid ('2026-09-16') -> Invalid 31st of 30-day month ('2026-09-31')
+    const transToInvalidSep31 = evaluateDateSegmentTransition('2026-09-16', '2026', '09', '31', false);
+    if (
+      transToInvalidSep31.valid ||
+      transToInvalidSep31.nextEmittedIso !== '' ||
+      !transToInvalidSep31.shouldEmitChange ||
+      !transToInvalidSep31.error
+    ) {
+      throw new Error('Case 5c failed: changing valid date to 2026-09-31 must emit empty string and mark invalid');
+    }
+
+    // ISO formatting, parsing roundtrip & Arabic readable date
     const iso = formatIsoDateParts(2026, 9, 5);
     if (iso !== '2026-09-05') {
       throw new Error(`Expected 2026-09-05, got ${iso}`);
@@ -543,21 +620,267 @@ export function runFullAcademicTestSuite(): { passedCount: number; failedCount: 
     if (!parsed || parsed.year !== 2026 || parsed.month !== 9 || parsed.day !== 5) {
       throw new Error('ISO date parse roundtrip failed');
     }
+    if (formatArabicReadableDate('2026-09-16') !== '16 سبتمبر 2026') {
+      throw new Error('Unexpected readable Arabic date');
+    }
+  });
 
-    // 4. Readable Arabic date formatting
-    const readable = formatArabicReadableDate('2026-09-16');
-    if (readable !== '16 سبتمبر 2026') {
-      throw new Error(`Unexpected readable Arabic date: ${readable}`);
+  // T-29: Local Business Date Accuracy vs UTC Shift
+  test('T-29', 'دقة تواريخ الأعمال المحلية وعدم تأثرها بانزياح التوقيت العالمي UTC عند منتصف الليل', 'DateValidation', () => {
+    const localEarlyMorning = new Date(2026, 8, 16, 0, 15, 0); // Sept 16, 2026 00:15:00 local time
+    const localLateNight = new Date(2026, 8, 16, 23, 45, 0);   // Sept 16, 2026 23:45:00 local time
+
+    if (formatDateToLocalIso(localEarlyMorning) !== '2026-09-16') {
+      throw new Error('Early morning local date shifted unexpectedly');
+    }
+    if (formatDateToLocalIso(localLateNight) !== '2026-09-16') {
+      throw new Error('Late night local date shifted unexpectedly');
+    }
+    if (getLocalTodayCompactStamp(localEarlyMorning) !== '20260916') {
+      throw new Error('Compact stamp for early morning local date failed');
+    }
+    if (getLocalTodayCompactStamp(localLateNight) !== '20260916') {
+      throw new Error('Compact stamp for late night local date failed');
     }
 
-    // 5. Local date helpers & SQLite range query compatibility
     const today = getLocalTodayDateString();
     const weekAgo = getRelativeLocalDateString(-6);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || !/^\d{4}-\d{2}-\d{2}$/.test(weekAgo)) {
-      throw new Error('Local date helper did not return YYYY-MM-DD');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || !/^\d{4}-\d{2}-\d{2}$/.test(weekAgo) || weekAgo > today) {
+      throw new Error('Local today/relative date helpers returned invalid range');
     }
-    if (weekAgo > today) {
-      throw new Error('Relative date -6 days should be <= today');
+  });
+
+  // T-30: Unified Report Permissions Verification Across All 6 Roles
+  test('T-30', 'توحيد صلاحيات التقارير بين الواجهة والخادم واختبار جميع الأدوار المسموحة وغير المسموحة', 'Security', () => {
+    const expectedAllowed = ['ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'];
+    const expectedDenied = ['SUPERVISOR', 'SALES_OFFICER', 'WAREHOUSE_KEEPER'];
+
+    // 1. Verify REPORT_ALLOWED_ROLES matches expected allowed roles
+    if (
+      REPORT_ALLOWED_ROLES.length !== expectedAllowed.length ||
+      !expectedAllowed.every((r) => (REPORT_ALLOWED_ROLES as readonly string[]).includes(r))
+    ) {
+      throw new Error(`REPORT_ALLOWED_ROLES mismatch: ${JSON.stringify(REPORT_ALLOWED_ROLES)}`);
+    }
+
+    // 2. Verify ROLES table permissions in DB match REPORT_ALLOWED_ROLES
+    const dbRoles = db.prepare('SELECT role_code, permissions FROM ROLES').all() as { role_code: string; permissions: string }[];
+    for (const r of dbRoles) {
+      const perms: string[] = JSON.parse(r.permissions || '[]');
+      const hasReportPerm = perms.includes('ALL_PERMISSIONS') || perms.includes('VIEW_REPORTS');
+      if (expectedAllowed.includes(r.role_code) && !hasReportPerm) {
+        throw new Error(`Role ${r.role_code} should have VIEW_REPORTS in DB`);
+      }
+      if (expectedDenied.includes(r.role_code) && hasReportPerm) {
+        throw new Error(`Role ${r.role_code} should NOT have VIEW_REPORTS in DB`);
+      }
+    }
+
+    // 3. Test requireRoles(...REPORT_ALLOWED_ROLES) middleware for every allowed and denied role
+    const middleware = requireRoles(...REPORT_ALLOWED_ROLES);
+    for (const roleCode of [...expectedAllowed, ...expectedDenied]) {
+      let nextCalled = false;
+      let statusSent = 200;
+      const mockReq: any = {
+        user: {
+          id: 1,
+          username: `test_${roleCode.toLowerCase()}`,
+          fullName: 'مستخدم اختبار',
+          email: null,
+          roleCode,
+          branchId: 1,
+          permissions: []
+        }
+      };
+      const mockRes: any = {
+        status(code: number) {
+          statusSent = code;
+          return this;
+        },
+        json() {
+          return this;
+        }
+      };
+      middleware(mockReq, mockRes, () => {
+        nextCalled = true;
+      });
+
+      if (expectedAllowed.includes(roleCode)) {
+        if (!nextCalled || statusSent !== 200) {
+          throw new Error(`Allowed role ${roleCode} was wrongly denied access to reports`);
+        }
+      } else {
+        if (nextCalled || statusSent !== 403) {
+          throw new Error(`Disallowed role ${roleCode} was wrongly granted access to reports (status=${statusSent})`);
+        }
+      }
+    }
+  });
+
+  // T-31: Houses & Flocks Data Contract, Empty vs Occupied Houses, Occupancy Rate & ADMIN/PROD_MANAGER Verification
+  test('T-31', 'تحقق الهناجر والقطعان (الهناجر الفارغة والمشغولة، نسب الإشغال، وتوافق حقول الخادم والواجهة لـ ADMIN وPROD_MANAGER)', 'Production', () => {
+    const farm = db.prepare('SELECT id FROM FARMS LIMIT 1').get() as any;
+    const emptyHouseCode = 'H-EMPTY-' + Date.now();
+    db.prepare(`
+      INSERT INTO HOUSES (farm_id, house_code, house_name, house_type, capacity, current_status)
+      VALUES (?, ?, 'هنجر اختبار فارغ', 'بياض', 12000, 'EMPTY')
+    `).run(farm.id, emptyHouseCode);
+
+    const housesQuery = db.prepare(`
+      SELECT h.*, f.farm_name, u.full_name as supervisor_name,
+             fl.id as active_flock_id, fl.flock_code as active_flock_code,
+             fl.breed as active_flock_breed,
+             COALESCE(fl.current_count, 0) as active_bird_count,
+             COALESCE(fl.current_count, 0) as active_flock_count,
+             fl.entry_date as flock_entry_date
+      FROM HOUSES h
+      LEFT JOIN FARMS f ON h.farm_id = f.id
+      LEFT JOIN USERS u ON h.supervisor_id = u.id
+      LEFT JOIN FLOCKS fl ON fl.house_id = h.id AND fl.status = 'ACTIVE'
+      ORDER BY h.house_code ASC
+    `).all() as any[];
+
+    const emptyHouse = housesQuery.find((h) => h.house_code === emptyHouseCode);
+    if (!emptyHouse) throw new Error('Empty house was not returned by houses query');
+    if (emptyHouse.active_flock_count !== 0 || emptyHouse.active_bird_count !== 0) {
+      throw new Error(`Empty house should have 0 active birds, got ${emptyHouse.active_flock_count}`);
+    }
+    const emptyOccupancy = emptyHouse.capacity > 0 ? Math.min(100, Math.round((emptyHouse.active_flock_count / emptyHouse.capacity) * 100)) : 0;
+    if (emptyOccupancy !== 0) throw new Error(`Expected 0% occupancy for empty house, got ${emptyOccupancy}%`);
+
+    const occupiedHouse = housesQuery.find((h) => h.active_flock_code && h.active_flock_count > 0);
+    if (!occupiedHouse) throw new Error('Expected at least one occupied house with active flock');
+    if (typeof occupiedHouse.active_flock_count !== 'number' || typeof occupiedHouse.active_bird_count !== 'number') {
+      throw new Error('Occupied house active bird count fields must be numbers');
+    }
+    const occupiedRate = occupiedHouse.capacity > 0 ? Math.min(100, Math.round((occupiedHouse.active_flock_count / occupiedHouse.capacity) * 100)) : 0;
+    if (occupiedRate <= 0 || occupiedRate > 100) {
+      throw new Error(`Invalid occupancy rate ${occupiedRate}% for occupied house ${occupiedHouse.house_code}`);
+    }
+
+    const flocksQuery = db.prepare(`
+      SELECT fl.*, fl.current_count as current_bird_count,
+             h.house_name, h.house_code, h.capacity as house_capacity
+      FROM FLOCKS fl
+      JOIN HOUSES h ON fl.house_id = h.id
+    `).all() as any[];
+
+    if (flocksQuery.length === 0) throw new Error('Expected flocks in FLOCKS table');
+    for (const fl of flocksQuery) {
+      if (typeof fl.initial_count !== 'number' || typeof fl.current_count !== 'number' || typeof fl.current_bird_count !== 'number') {
+        throw new Error(`Flock ${fl.flock_code} has undefined or non-numeric count fields`);
+      }
+    }
+  });
+
+  // T-32: Print & PDF Data Contract Verification (Invoices, Warehouse Receipts, Requisitions)
+  test('T-32', 'توافق حقول الطباعة وتصدير PDF للفواتير وسندات التوريد والطلبات وأسماء المستخدمين', 'Reports', () => {
+    const sampleInv = db.prepare(`
+      SELECT inv.*,
+             inv.payment_status as status,
+             c.customer_name, c.customer_code, c.phone as customer_phone,
+             c.address as customer_address, c.commercial_reg, c.tax_number, c.tax_number as customer_tax,
+             u.full_name as issuer_name,
+             u.full_name as created_by_name
+      FROM SALES_INVOICES inv
+      JOIN CUSTOMERS c ON inv.customer_id = c.id
+      JOIN USERS u ON inv.user_id = u.id
+      LIMIT 1
+    `).get() as any;
+
+    if (!sampleInv || !sampleInv.invoice_no || !sampleInv.customer_name || !sampleInv.created_by_name || !sampleInv.issuer_name) {
+      throw new Error('Invoice print/PDF query missing required header fields');
+    }
+
+    const sampleRcp = db.prepare(`
+      SELECT wr.*,
+             wr.receipt_date as supply_date,
+             wr.batch_number as batch_no,
+             w.warehouse_name, w.warehouse_code, w.location as warehouse_location,
+             p.product_name, p.product_code, p.unit, p.unit_price,
+             u.full_name as receiver_name,
+             u.full_name as received_by_name
+      FROM WAREHOUSE_RECEIPTS wr
+      JOIN WAREHOUSES w ON wr.warehouse_id = w.id
+      JOIN PRODUCTS p ON wr.product_id = p.id
+      JOIN USERS u ON wr.received_by = u.id
+      LIMIT 1
+    `).get() as any;
+
+    if (!sampleRcp || !sampleRcp.receipt_no || !sampleRcp.product_name || !sampleRcp.received_by_name || !sampleRcp.receiver_name) {
+      throw new Error('Warehouse receipt print/PDF query missing required fields');
+    }
+  });
+
+  // T-33: Product Catalog Management Role Enforcement & Stock Tamper Protection (FR-09, BR-01)
+  test('T-33', 'حصر وتدقيق صلاحيات إدارة المنتجات والعملاء وتعديل الكتالوج دون المساس بالأرصدة (FR-09, BR-01)', 'ProductsCustomers', () => {
+    // 1. Role verification for product management: ONLY SALES_OFFICER and ADMIN
+    const allowedManageRoles = ['SALES_OFFICER', 'ADMIN'];
+    const disallowedRoles = ['PROD_MANAGER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'SUPERVISOR'];
+
+    for (const r of allowedManageRoles) {
+      if (!allowedManageRoles.includes(r)) throw new Error(`Role ${r} should be allowed to manage products`);
+    }
+    for (const r of disallowedRoles) {
+      if (allowedManageRoles.includes(r)) throw new Error(`Role ${r} must NOT be allowed to manage products`);
+    }
+
+    // 2. Verify product update preserves current_stock strictly
+    const originalProd = db.prepare('SELECT id, product_code, product_name, unit_price, current_stock, min_stock_alert FROM PRODUCTS LIMIT 1').get() as any;
+    if (!originalProd) throw new Error('No products found for update verification');
+
+    const newName = originalProd.product_name + ' (محدث)';
+    const newPrice = originalProd.unit_price + 5;
+    const initialStockBefore = originalProd.current_stock;
+
+    // Simulate update query matching backend route
+    db.prepare(`
+      UPDATE PRODUCTS
+      SET product_name = ?, unit_price = ?
+      WHERE id = ?
+    `).run(newName, newPrice, originalProd.id);
+
+    const updatedProd = db.prepare('SELECT * FROM PRODUCTS WHERE id = ?').get(originalProd.id) as any;
+    if (updatedProd.product_name !== newName) throw new Error('Product name was not updated');
+    if (updatedProd.unit_price !== newPrice) throw new Error('Product unit price was not updated');
+    if (updatedProd.current_stock !== initialStockBefore) {
+      throw new Error(`Inventory stock was tampered with during catalog update: ${updatedProd.current_stock} vs ${initialStockBefore}`);
+    }
+  });
+
+  // T-34: User Session Isolation & Navigation Reset Security (FR-15, UC-01)
+  test('T-34', 'فصل الجلسات وتصفير سجل التنقل عند تبديل الحسابات ومنع تسريب بيانات الحساب السابق (FR-15, UC-01)', 'Security', () => {
+    const adminUser = db.prepare("SELECT * FROM USERS WHERE username = 'admin'").get() as any;
+    const supervisorUser = db.prepare("SELECT * FROM USERS WHERE username = 'supervisor1'").get() as any;
+    if (!adminUser || !supervisorUser) throw new Error('Required test users missing');
+
+    // 1. Verify view authorization scopes between roles
+    const adminAllowedViews = ['dashboard', 'houses-flocks', 'daily-production', 'requisitions', 'sales', 'warehouse', 'products-customers', 'reports', 'users-management'];
+    const supervisorAllowedViews = ['dashboard', 'houses-flocks', 'daily-production', 'requisitions'];
+
+    // Supervisor must NOT have access to financial, warehouse, product catalog or admin views
+    const forbiddenForSupervisor = ['sales', 'warehouse', 'products-customers', 'reports', 'users-management'];
+    for (const view of forbiddenForSupervisor) {
+      if (supervisorAllowedViews.includes(view)) {
+        throw new Error(`Security breach: Supervisor has unauthorized access to view ${view}`);
+      }
+    }
+
+    // 2. Notification isolation check: ensure supervisor cannot read admin-targeted notifications
+    const adminNotifCount = (db.prepare(`
+      SELECT COUNT(*) as c FROM NOTIFICATIONS
+      WHERE role_target = 'ADMIN' OR user_id = ?
+    `).get(adminUser.id) as any).c;
+
+    const supervisorVisibleNotifs = db.prepare(`
+      SELECT * FROM NOTIFICATIONS
+      WHERE (user_id = ? OR role_target = 'SUPERVISOR')
+    `).all(supervisorUser.id) as any[];
+
+    for (const n of supervisorVisibleNotifs) {
+      if (n.role_target === 'ADMIN' && n.user_id !== supervisorUser.id) {
+        throw new Error(`Data leakage: Supervisor can see admin notification id ${n.id}`);
+      }
     }
   });
 

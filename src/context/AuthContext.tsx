@@ -25,6 +25,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  sessionId: number;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -38,6 +39,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(getAuthToken());
+  const [sessionId, setSessionId] = useState<number>(() => Date.now());
   const [loading, setLoading] = useState<boolean>(true);
 
   const refreshUser = async () => {
@@ -72,6 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthToken(res.token);
         setToken(res.token);
         setUser(res.user);
+        setSessionId(Date.now());
       }
     } finally {
       setLoading(false);
@@ -82,6 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     removeAuthToken();
     setToken(null);
     setUser(null);
+    setSessionId(Date.now());
   };
 
   const hasRole = (...roles: (RoleCode | string)[]): boolean => {
@@ -102,6 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         token,
+        sessionId,
         loading,
         login,
         logout,

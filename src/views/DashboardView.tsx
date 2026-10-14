@@ -413,7 +413,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                 id="stat-admin-warehouse"
                 title="سندات التوريد والمخزون"
                 value={`${kpis.warehouseReceiptsCount} سند توريد`}
-                subtitle={`${kpis.totalSuppliedQty.toLocaleString('ar-EG')} وحدة موردة • تقييم ${formatCurrency(kpis.totalStockValuation)}`}
+                subtitle={`${(kpis.totalSuppliedQty ?? 0).toLocaleString('ar-EG')} وحدة موردة • تقييم ${formatCurrency(kpis.totalStockValuation)}`}
                 icon={Warehouse}
                 colorTheme="purple"
               />
@@ -1004,14 +1004,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               id="stat-active-houses"
               title="الهناجر المشغولة"
               value={`${kpis.activeHousesCount} / ${kpis.totalHousesCount}`}
-              subtitle={`${kpis.currentBirdsCount.toLocaleString('ar-EG')} طائر في القطعان النشطة`}
+              subtitle={`${(kpis.currentBirdsCount ?? 0).toLocaleString('ar-EG')} طائر في القطعان النشطة`}
               icon={Home}
               colorTheme="blue"
             />
             <StatCard
               id="stat-total-mortality"
               title="إجمالي وفيات القطعان"
-              value={`${kpis.totalMortality.toLocaleString('ar-EG')} طائر`}
+              value={`${(kpis.totalMortality ?? 0).toLocaleString('ar-EG')} طائر`}
               subtitle="نسبة النفوق ضمن الحدود الطبيعية المستهدفة"
               icon={AlertTriangle}
               colorTheme="rose"
@@ -1232,7 +1232,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <StatCard
               id="stat-stock-units"
               title="الوحدات المخزنة الفعلية"
-              value={`${kpis.totalStockUnits.toLocaleString('ar-EG')} وحدة`}
+              value={`${(kpis.totalStockUnits ?? 0).toLocaleString('ar-EG')} وحدة`}
               subtitle="جاهزة للصرف أو التوريد الفوري"
               icon={Warehouse}
               colorTheme="emerald"
@@ -1458,7 +1458,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <StatCard
               id="stat-sup-birds"
               title="الطيور الحية بالقطعان"
-              value={`${kpis.currentBirdsCount.toLocaleString('ar-EG')} طائر`}
+              value={`${(kpis.currentBirdsCount ?? 0).toLocaleString('ar-EG')} طائر`}
               subtitle="رعاية وتغذية دورية منتظمة"
               icon={Egg}
               colorTheme="blue"
@@ -1466,7 +1466,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <StatCard
               id="stat-sup-prod"
               title="إنتاج اليوم المسجل"
-              value={`${kpis.todayProduction.toLocaleString('ar-EG')}`}
+              value={`${(kpis.todayProduction ?? 0).toLocaleString('ar-EG')}`}
               subtitle="طبق مسجل اليوم"
               icon={PlusCircle}
               colorTheme="purple"

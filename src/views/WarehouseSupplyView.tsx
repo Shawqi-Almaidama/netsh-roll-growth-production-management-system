@@ -15,9 +15,14 @@ import { api } from '../api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { WarehouseReceipt, Product, Warehouse } from '../types.js';
 import { Modal } from '../components/ui/Modal.js';
+import { DocumentPreviewModal } from '../components/ui/DocumentPreviewModal.js';
 import { Badge } from '../components/ui/Badge.js';
 import { DateInput } from '../components/ui/DateInput.js';
-import { exportWarehouseReceiptPDF } from '../utils/pdfExport.js';
+import {
+  buildWarehouseReceiptDocumentHtml,
+  exportWarehouseReceiptPDF,
+  printWarehouseReceiptDocument
+} from '../utils/pdfExport.js';
 import { getLocalTodayDateString } from '../utils/date.js';
 
 export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
@@ -152,13 +157,12 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
   const handleViewReceipt = async (id: number, autoPrint = false) => {
     try {
       const res = await api.getWarehouseReceiptDetails(id);
-      if (res.success) {
+      if (res.success && res.receipt) {
         setSelectedReceipt(res.receipt);
-        setIsViewOpen(true);
         if (autoPrint) {
-          setTimeout(() => {
-            window.print();
-          }, 150);
+          printWarehouseReceiptDocument(res.receipt, user?.fullName);
+        } else {
+          setIsViewOpen(true);
         }
       }
     } catch (err) {
@@ -168,7 +172,7 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
 
   const handlePrintSelectedReceipt = () => {
     if (!selectedReceipt) return;
-    window.print();
+    printWarehouseReceiptDocument(selectedReceipt, user?.fullName);
   };
 
   const handleExportReceiptPDF = async (id: number) => {
@@ -322,6 +326,46 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
             </div>
           </div>
         )}
+
+        {/* Summary KPI Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500">إجمالي سندات الاستلام</p>
+              <p className="text-xl font-black text-slate-900 mt-1 font-mono">
+                {filteredReceipts.length}{' '}
+                <span className="text-xs font-medium text-slate-500">سند توريد</span>
+              </p>
+            </div>
+            <Badge variant="purple">{warehouses.length} مستودعات</Badge>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500">إجمالي الكميات الموردة (المعروضة)</p>
+              <p className="text-xl font-black text-emerald-700 mt-1 font-mono">
+                +
+                {filteredReceipts
+                  .reduce((acc, r) => acc + Number(r.quantity || 0), 0)
+                  .toLocaleString('ar-EG')}
+              </p>
+            </div>
+            <Badge variant="emerald">إضافة مخزنية</Badge>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500">أصناف دون الحد الأدنى للرصيد</p>
+              <p className="text-xl font-black text-amber-700 mt-1 font-mono">
+                {lowStockProducts.length}{' '}
+                <span className="text-xs font-medium text-slate-500">صنف</span>
+              </p>
+            </div>
+            <Badge variant={lowStockProducts.length > 0 ? 'amber' : 'emerald'}>
+              {lowStockProducts.length > 0 ? 'يستوجب التوريد' : 'رصيد آمن'}
+            </Badge>
+          </div>
+        </div>
 
         {/* Filter Bar */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -492,7 +536,12 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
                         {rec.warehouse_name}
                       </td>
                       <td className="py-3 px-4 font-bold text-purple-900 whitespace-nowrap">
-                        {rec.product_name}
+                        <div>{rec.product_name}</div>
+                        {(rec as any).batch_number && (
+                          <span className="text-[10px] font-mono text-slate-500">
+                            دفعة: {(rec as any).batch_number}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono font-bold text-emerald-800 whitespace-nowrap">
                         {rec.quantity} {rec.unit}
@@ -567,14 +616,14 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
         )}
 
         <form onSubmit={handleCreateReceipt} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200 items-start">
             <div>
               <label className="block font-bold text-slate-700 mb-1.5">المستودع المستلم *</label>
               <select
                 required
                 value={warehouseId}
                 onChange={(e) => setWarehouseId(e.target.value)}
-                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold min-h-[44px]"
+                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold min-h-[42px]"
               >
                 {warehouses.map((w) => (
                   <option key={`wh-opt-${w.id}`} value={w.id}>
@@ -594,11 +643,11 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
                 value={supplierName}
                 onChange={(e) => setSupplierName(e.target.value)}
                 placeholder="اسم المورد أو عنبر الإنتاج"
-                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold min-h-[44px]"
+                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold min-h-[42px]"
               />
             </div>
 
-            <div className="sm:col-span-2">
+            <div>
               <DateInput
                 id="wh-supply-date"
                 label="تاريخ الاستلام الفعلي"
@@ -765,250 +814,24 @@ export const WarehouseSupplyView: React.FC<{ onBack?: () => void }> = ({ onBack 
         </form>
       </Modal>
 
-      {/* MODAL: VIEW RECEIPT DETAILS */}
-      <Modal
-        isOpen={isViewOpen}
+      {/* OFFICIAL A4 DOCUMENT PREVIEW MODAL FOR WAREHOUSE RECEIPTS */}
+      <DocumentPreviewModal
+        isOpen={isViewOpen && !!selectedReceipt}
         onClose={() => setIsViewOpen(false)}
-        title={`سند استلام وتوريد: ${selectedReceipt?.receipt_no || ''}`}
-        maxWidth="max-w-xl"
-      >
-        {selectedReceipt && (
-          <div className="space-y-4 text-xs">
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <span className="text-slate-400 block text-[11px]">رقم السند:</span>
-                <span className="font-mono font-bold text-slate-900">
-                  {selectedReceipt.receipt_no}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">تاريخ الاستلام / التوريد:</span>
-                <span className="font-mono text-slate-800" dir="ltr">
-                  {selectedReceipt.receipt_date || selectedReceipt.supply_date}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">المستودع المستلم:</span>
-                <span className="font-bold text-slate-900">
-                  {selectedReceipt.warehouse_name}
-                  {selectedReceipt.warehouse_code && (
-                    <span className="text-[10px] font-mono text-slate-500 mr-1">
-                      ({selectedReceipt.warehouse_code})
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">المورد / جهة التوريد:</span>
-                <span className="font-bold text-slate-900">{selectedReceipt.supplier_name}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">أمين المستودع المستلم:</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedReceipt.receiver_name || selectedReceipt.received_by_name}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">حالة التوريد:</span>
-                <Badge variant="emerald">تم التوريد وزيادة المخزون</Badge>
-              </div>
-              {selectedReceipt.notes && (
-                <div className="sm:col-span-2 pt-2 border-t border-slate-200">
-                  <span className="text-slate-400 block text-[11px]">ملاحظات الاستلام:</span>
-                  <span className="text-slate-700">{selectedReceipt.notes}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="border border-slate-200 rounded-xl overflow-x-auto">
-              <table className="w-full min-w-[400px] text-right text-xs">
-                <thead className="bg-slate-100 text-slate-700">
-                  <tr>
-                    <th className="p-2.5 font-bold whitespace-nowrap">#</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">الصنف المستلم</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">الكمية المضافة</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">الوحدة</th>
-                    <th className="p-2.5 font-bold whitespace-nowrap">رقم التشغيلة</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {selectedReceipt.items?.map((it, idx) => (
-                    <tr key={idx}>
-                      <td className="p-2.5 font-mono text-slate-400 whitespace-nowrap">
-                        {idx + 1}
-                      </td>
-                      <td className="p-2.5 font-bold text-slate-900 whitespace-nowrap">
-                        {it.product_name}
-                        {it.product_code && (
-                          <span className="text-[10px] font-mono text-slate-400 mr-1">
-                            ({it.product_code})
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-2.5 font-mono font-black text-purple-900 whitespace-nowrap">
-                        {it.quantity_received}
-                      </td>
-                      <td className="p-2.5 text-slate-600 whitespace-nowrap">{it.unit}</td>
-                      <td className="p-2.5 font-mono text-slate-500 whitespace-nowrap">
-                        {it.batch_number || '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              {canPrintReceipt && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleExportReceiptPDF(selectedReceipt.id)}
-                    disabled={pdfExportingId === selectedReceipt.id}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors disabled:opacity-50 min-h-[42px]"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>
-                      {pdfExportingId === selectedReceipt.id ? 'جاري التصدير...' : 'تصدير PDF'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePrintSelectedReceipt}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors min-h-[42px]"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>طباعة السند</span>
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsViewOpen(false)}
-                className="px-4 py-2.5 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-100 font-bold min-h-[42px]"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* FORMAL A4 PRINTABLE WAREHOUSE RECEIPT DOCUMENT (ONLY VISIBLE IN @media print) */}
-      {selectedReceipt && canPrintReceipt && (
-        <div
-          className="hidden print:block printable-report-wrapper bg-white text-black p-4"
-          dir="rtl"
-        >
-          <div className="border-b-2 border-slate-800 pb-4 mb-5 flex justify-between items-start">
-            <div>
-              <h1 className="text-lg font-black text-slate-900">
-                شركة نتش رول جروث للتنمية والاستثمار الزراعي
-              </h1>
-              <p className="text-xs text-slate-700 mt-0.5">
-                إدارة المستودعات والمخزون — سند استلام وتوريد مخزني رسمي
-              </p>
-            </div>
-            <div className="text-left text-xs space-y-0.5">
-              <div className="font-mono font-black text-sm">
-                رقم السند: {selectedReceipt.receipt_no}
-              </div>
-              <div>
-                تاريخ الاستلام:{' '}
-                <span className="font-mono" dir="ltr">
-                  {selectedReceipt.receipt_date || selectedReceipt.supply_date}
-                </span>
-              </div>
-              <div>حالة السند: تم التوريد وتحديث المخزون</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-5 text-xs border border-slate-300 rounded-lg p-3">
-            <div className="space-y-1">
-              <div className="font-bold text-slate-900 border-b border-slate-200 pb-1 mb-1">
-                بيانات المستودع والتوريد
-              </div>
-              <div>
-                المستودع المستلم:{' '}
-                <span className="font-bold">{selectedReceipt.warehouse_name}</span>
-                {selectedReceipt.warehouse_code && (
-                  <span className="font-mono mr-1">({selectedReceipt.warehouse_code})</span>
-                )}
-              </div>
-              <div>
-                المورد / جهة التوريد:{' '}
-                <span className="font-bold">{selectedReceipt.supplier_name}</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <div className="font-bold text-slate-900 border-b border-slate-200 pb-1 mb-1">
-                بيانات الاستلام والتوثيق
-              </div>
-              <div>
-                أمين المستودع المستلم:{' '}
-                <span className="font-bold">
-                  {selectedReceipt.receiver_name || selectedReceipt.received_by_name}
-                </span>
-              </div>
-              <div>
-                تاريخ التوثيق:{' '}
-                <span className="font-mono">
-                  {selectedReceipt.created_at || selectedReceipt.receipt_date}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <table className="w-full text-right text-xs mb-5">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>كود الصنف</th>
-                <th>اسم المنتج المستلم</th>
-                <th>الكمية المستلمة</th>
-                <th>الوحدة</th>
-                <th>رقم التشغيلة (Batch)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {selectedReceipt.items?.map((it, idx) => (
-                <tr key={`print-rec-item-${idx}`}>
-                  <td className="font-mono">{idx + 1}</td>
-                  <td className="font-mono">
-                    {it.product_code || selectedReceipt.product_code || '-'}
-                  </td>
-                  <td className="font-bold">{it.product_name}</td>
-                  <td className="font-mono font-bold">{it.quantity_received}</td>
-                  <td>{it.unit}</td>
-                  <td className="font-mono">{it.batch_number || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {selectedReceipt.notes && (
-            <div className="border border-slate-300 rounded p-2.5 text-xs mb-8">
-              <div className="font-bold mb-1">ملاحظات الفحص والاستلام:</div>
-              <div>{selectedReceipt.notes}</div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-300 text-center text-xs">
-            <div>
-              <div className="font-bold mb-6">المُسلِّم (جهة التوريد)</div>
-              <div>{selectedReceipt.supplier_name}</div>
-            </div>
-            <div>
-              <div className="font-bold mb-6">أمين المستودع المستلم</div>
-              <div>{selectedReceipt.receiver_name || selectedReceipt.received_by_name}</div>
-            </div>
-            <div>
-              <div className="font-bold mb-6">اعتماد إدارة الإنتاج</div>
-              <div>........................................</div>
-            </div>
-          </div>
-        </div>
-      )}
+        title={`سند توريد واستلام مخزني رقم: ${selectedReceipt?.receipt_no || ''}`}
+        subtitle={`المستودع: ${selectedReceipt?.warehouse_name || '-'} | المورد: ${selectedReceipt?.supplier_name || '-'} | التاريخ: ${selectedReceipt?.receipt_date || selectedReceipt?.supply_date || '-'}`}
+        documentHtml={
+          selectedReceipt ? buildWarehouseReceiptDocumentHtml(selectedReceipt, user?.fullName) : ''
+        }
+        onPrint={handlePrintSelectedReceipt}
+        onExportPdf={() => {
+          if (selectedReceipt) {
+            return handleExportReceiptPDF(selectedReceipt.id);
+          }
+        }}
+        exportingPdf={selectedReceipt ? pdfExportingId === selectedReceipt.id : false}
+        backLabel="رجوع لسجل السندات"
+      />
     </div>
   );
 };

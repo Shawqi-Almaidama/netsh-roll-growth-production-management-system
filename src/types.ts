@@ -49,6 +49,7 @@ export interface House {
   active_flock_code?: string;
   active_flock_breed?: string;
   active_flock_count?: number;
+  active_bird_count?: number;
 }
 
 export interface Flock {
@@ -58,6 +59,7 @@ export interface Flock {
   breed: string;
   initial_count: number;
   current_count: number;
+  current_bird_count?: number;
   total_mortality: number;
   entry_date: string;
   target_weight_g: number;
@@ -76,8 +78,13 @@ export interface DailyProductionRecord {
   house_id: number;
   record_date: string;
   production_quantity: number;
+  prod_Egg_Trays?: number;
+  damaged_eggs?: number;
+  cull_eggs?: number;
+  net_trays?: number;
   unit: string;
   mortality_count: number;
+  mortality_cause?: string;
   feed_consumed_kg: number;
   water_consumed_liters: number;
   avg_weight_g: number;
@@ -94,6 +101,7 @@ export interface DailyProductionRecord {
   house_type: string;
   farm_name: string;
   supervisor_name: string;
+  recorded_by_name?: string;
 }
 
 export type RequisitionType = 'CHICKS' | 'FEED' | 'TREATMENT' | 'SUPPLY';

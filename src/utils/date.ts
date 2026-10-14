@@ -172,6 +172,44 @@ export function getLocalTodayDateString(): string {
 }
 
 /**
+ * Returns a local date in compact YYYYMMDD format for business document numbers
+ * (e.g., REQ-..., INV-..., RCP-...) without UTC timezone drift.
+ */
+export function getLocalTodayCompactStamp(date: Date = new Date()): string {
+  return formatDateToLocalIso(date).replace(/-/g, '');
+}
+
+/**
+ * Evaluates a state transition in the segmented DateInput component.
+ * Ensures that when a previously valid date is edited into an incomplete or invalid input,
+ * `nextEmittedIso` becomes `''` and `shouldEmitChange` is `true` so parent state never retains a stale date.
+ */
+export function evaluateDateSegmentTransition(
+  prevEmittedIso: string,
+  yearInput: string | number,
+  monthInput: string | number,
+  dayInput: string | number,
+  required = false
+): {
+  valid: boolean;
+  isoDate: string;
+  error: string | null;
+  nextEmittedIso: string;
+  shouldEmitChange: boolean;
+} {
+  const result = validateGregorianParts(yearInput, monthInput, dayInput, required);
+  const nextEmittedIso = result.valid ? result.isoDate : '';
+  const shouldEmitChange = nextEmittedIso !== prevEmittedIso;
+  return {
+    valid: result.valid,
+    isoDate: result.isoDate,
+    error: result.error,
+    nextEmittedIso,
+    shouldEmitChange
+  };
+}
+
+/**
  * Returns a local date N days ago in YYYY-MM-DD format.
  */
 export function getLocalDateDaysAgo(daysAgo: number): string {

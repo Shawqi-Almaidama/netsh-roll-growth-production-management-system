@@ -10,10 +10,11 @@ import {
   RefreshCw,
   ServerCrash,
   KeyRound,
-  AlertCircle
+  AlertCircle,
+  ArrowRight
 } from 'lucide-react';
 import { AuthProvider, useAuth, RoleCode } from './context/AuthContext.js';
-import { Sidebar, navItems } from './components/layout/Sidebar.js';
+import { Sidebar, MobileBottomNav, navItems, viewPermissions } from './components/layout/Sidebar.js';
 import { LoginView } from './views/LoginView.js';
 import { DashboardView } from './views/DashboardView.js';
 import { HousesFlocksView } from './views/HousesFlocksView.js';
@@ -26,23 +27,61 @@ import { ReportsView } from './views/ReportsView.js';
 import { UsersManagementView } from './views/UsersManagementView.js';
 import { api, GlobalErrorType } from './api.js';
 
-const viewPermissions: Record<string, RoleCode[]> = {
-  'dashboard': ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT'],
-  'houses-flocks': ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR'],
-  'daily-production': ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR'],
-  'requisitions': ['ADMIN', 'PROD_MANAGER', 'SUPERVISOR', 'WAREHOUSE_KEEPER'],
-  'sales': ['ADMIN', 'SALES_OFFICER', 'ACCOUNTANT'],
-  'warehouse': ['ADMIN', 'WAREHOUSE_KEEPER', 'PROD_MANAGER'],
-  'products-customers': ['ADMIN', 'PROD_MANAGER', 'SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT'],
-  'reports': ['ADMIN', 'PROD_MANAGER', 'SALES_OFFICER', 'WAREHOUSE_KEEPER', 'ACCOUNTANT'],
-  'users-management': ['ADMIN']
-};
+export { viewPermissions };
 
 const MainApp: React.FC = () => {
-  const { user, loading, logout, hasRole } = useAuth();
-  const [activeView, setActiveView] = useState<string>('dashboard');
+  const { user, sessionId, loading, logout, hasRole } = useAuth();
+  const [activeView, setActiveViewState] = useState<string>('dashboard');
+  const [viewHistory, setViewHistory] = useState<string[]>([]);
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [isMobileOpen, setIsMobileOpen] = useState<boolean>(false);
+
+  // Track session identity so navigation isn't wiped on ordinary user refreshes
+  const sessionUserRef = useRef<{ id: number; sessionId: number } | null>(null);
+
+  const handleLogout = () => {
+    setActiveViewState('dashboard');
+    setViewHistory([]);
+    setNotifications([]);
+    setUnreadCount(0);
+    setSystemBanner(null);
+    sessionUserRef.current = null;
+    logout();
+  };
+
+  const setActiveView = (nextView: string) => {
+    const allowed = viewPermissions[nextView] || [];
+    if (user && !hasRole(...allowed)) {
+      setActiveViewState('dashboard');
+      return;
+    }
+    setActiveViewState((prev) => {
+      if (prev !== nextView) {
+        setViewHistory((hist) => [...hist.slice(-10), prev]);
+      }
+      return nextView;
+    });
+  };
+
+  const handleBackNavigation = () => {
+    setViewHistory((hist) => {
+      if (hist.length === 0) {
+        setActiveViewState('dashboard');
+        return [];
+      }
+      const nextHist = [...hist];
+      while (nextHist.length > 0) {
+        const candidate = nextHist.pop()!;
+        const allowed = viewPermissions[candidate] || [];
+        if (hasRole(...allowed)) {
+          setActiveViewState(candidate);
+          return nextHist;
+        }
+      }
+      setActiveViewState('dashboard');
+      return [];
+    });
+  };
 
   // Notifications state
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -161,6 +200,40 @@ const MainApp: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Account switch & session lifecycle synchronization
+  useEffect(() => {
+    if (!user) {
+      setActiveViewState('dashboard');
+      setViewHistory([]);
+      setNotifications([]);
+      setUnreadCount(0);
+      setSystemBanner(null);
+      sessionUserRef.current = null;
+      return;
+    }
+
+    // New user session or account switch: start fresh on dashboard
+    if (
+      !sessionUserRef.current ||
+      sessionUserRef.current.id !== user.id ||
+      sessionUserRef.current.sessionId !== sessionId
+    ) {
+      sessionUserRef.current = { id: user.id, sessionId };
+      setActiveViewState('dashboard');
+      setViewHistory([]);
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+
+    // Same user session update (e.g. refreshUser): verify activeView is authorized
+    const allowed = viewPermissions[activeView] || [];
+    if (!hasRole(...allowed)) {
+      setActiveViewState('dashboard');
+      setViewHistory((prev) => prev.filter((v) => hasRole(...(viewPermissions[v] || []))));
+    }
+  }, [user?.id, sessionId, user?.roleCode]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 text-white" dir="rtl">
@@ -233,21 +306,21 @@ const MainApp: React.FC = () => {
       case 'dashboard':
         return <DashboardView onNavigate={setActiveView} />;
       case 'houses-flocks':
-        return <HousesFlocksView />;
+        return <HousesFlocksView onBack={handleBackNavigation} />;
       case 'daily-production':
-        return <DailyProductionView />;
+        return <DailyProductionView onBack={handleBackNavigation} />;
       case 'requisitions':
-        return <RequisitionsView />;
+        return <RequisitionsView onBack={handleBackNavigation} />;
       case 'sales':
-        return <SalesInvoicesView />;
+        return <SalesInvoicesView onBack={handleBackNavigation} />;
       case 'warehouse':
-        return <WarehouseSupplyView />;
+        return <WarehouseSupplyView onBack={handleBackNavigation} />;
       case 'products-customers':
-        return <ProductsCustomersView />;
+        return <ProductsCustomersView onBack={handleBackNavigation} />;
       case 'reports':
-        return <ReportsView />;
+        return <ReportsView onBack={handleBackNavigation} />;
       case 'users-management':
-        return <UsersManagementView />;
+        return <UsersManagementView onBack={handleBackNavigation} />;
       default:
         return <DashboardView onNavigate={setActiveView} />;
     }
@@ -326,8 +399,30 @@ const MainApp: React.FC = () => {
             >
               <Menu className="w-5 h-5" />
             </button>
+            {(activeView !== 'dashboard' || viewHistory.length > 0) && (
+              <button
+                id="btn-navbar-back"
+                type="button"
+                onClick={handleBackNavigation}
+                title="رجوع للصفحة السابقة"
+                aria-label="رجوع للصفحة السابقة"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 text-slate-700 hover:text-emerald-800 text-xs font-bold transition-colors shrink-0"
+              >
+                <ArrowRight className="w-4 h-4 text-emerald-700" />
+                <span className="hidden sm:inline">رجوع</span>
+              </button>
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                {activeView !== 'dashboard' && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('dashboard')}
+                    className="hidden md:inline text-xs font-semibold text-slate-400 hover:text-emerald-700 transition-colors shrink-0"
+                  >
+                    الرئيسية /
+                  </button>
+                )}
                 <h2 className="text-sm sm:text-base font-bold text-slate-900 leading-tight truncate">
                   {currentNavLabel}
                 </h2>
@@ -471,7 +566,7 @@ const MainApp: React.FC = () => {
               <button
                 id="btn-logout"
                 type="button"
-                onClick={logout}
+                onClick={handleLogout}
                 title="تسجيل الخروج"
                 aria-label="تسجيل الخروج"
                 className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 h-10 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 text-xs font-semibold transition-colors"
@@ -526,10 +621,17 @@ const MainApp: React.FC = () => {
           </div>
         )}
 
-        {/* Main Content Area */}
-        <main className="flex-1 p-3 sm:p-6 max-w-7xl w-full mx-auto min-w-0">
+        {/* Main Content Area (pb-24 on mobile/tablet ensures bottom nav never covers content or form buttons) */}
+        <main className="flex-1 p-3 sm:p-6 pb-24 lg:pb-6 max-w-7xl w-full mx-auto min-w-0">
           {renderActiveView()}
         </main>
+
+        <MobileBottomNav
+          activeView={activeView}
+          setActiveView={setActiveView}
+          isMobileOpen={isMobileOpen}
+          setIsMobileOpen={setIsMobileOpen}
+        />
       </div>
     </div>
   );

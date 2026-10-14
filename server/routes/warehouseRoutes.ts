@@ -7,12 +7,13 @@ import {
   createNotification,
   resolveLowStockNotificationsIfRestocked
 } from '../auth.js';
+import { getLocalTodayDateString, getLocalTodayCompactStamp } from '../../src/utils/date.js';
 
 const router = Router();
 
 // Generate distinct Receipt Number: RCP-YYYYMMDD-XXXX (verified unique in DB)
 function generateReceiptNo(): string {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const dateStr = getLocalTodayCompactStamp();
   const maxRecord = db.prepare('SELECT COALESCE(MAX(id), 0) as maxId FROM WAREHOUSE_RECEIPTS').get() as any;
   let nextNum = (maxRecord?.maxId || 0) + 1;
   const checkStmt = db.prepare('SELECT 1 FROM WAREHOUSE_RECEIPTS WHERE receipt_no = ? OR receipt_no LIKE ?');
@@ -49,6 +50,7 @@ router.get('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCOUNTA
   let query = `
     SELECT wr.id, wr.receipt_no, wr.warehouse_id, wr.product_id, wr.quantity,
            wr.supplier_name, wr.received_by, wr.receipt_date, wr.batch_number,
+           wr.batch_number as batch_no,
            wr.notes, wr.created_at,
            w.warehouse_name, w.warehouse_code,
            p.product_name, p.product_code, p.unit, p.category,
@@ -87,7 +89,49 @@ router.get('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCOUNTA
 
   query += ' ORDER BY wr.id DESC LIMIT 200';
 
-  const receipts = db.prepare(query).all(...params);
+  const receipts = db.prepare(query).all(...params) as any[];
+
+  // Populate items array for each receipt (and group multi-item receipts sharing base receipt_no prefix)
+  const siblingStmt = db.prepare(`
+    SELECT wr.id, wr.receipt_no, wr.product_id, wr.quantity, wr.batch_number,
+           p.product_name, p.product_code, p.unit
+    FROM WAREHOUSE_RECEIPTS wr
+    JOIN PRODUCTS p ON wr.product_id = p.id
+    WHERE wr.receipt_no = ? OR wr.receipt_no LIKE ?
+    ORDER BY wr.id ASC
+  `);
+
+  for (const r of receipts) {
+    const baseMatch = String(r.receipt_no || '').match(/^(RCP-\d{8}-\d{4})-\d+$/);
+    if (baseMatch) {
+      const baseNo = baseMatch[1];
+      const siblings = siblingStmt.all(baseNo, `${baseNo}-%`) as any[];
+      r.items = siblings.map((s) => ({
+        product_id: s.product_id,
+        product_code: s.product_code,
+        product_name: s.product_name,
+        quantity: s.quantity,
+        quantity_received: s.quantity,
+        unit: s.unit,
+        batch_number: s.batch_number,
+        batch_no: s.batch_number
+      }));
+    } else {
+      r.items = [
+        {
+          product_id: r.product_id,
+          product_code: r.product_code,
+          product_name: r.product_name,
+          quantity: r.quantity,
+          quantity_received: r.quantity,
+          unit: r.unit,
+          batch_number: r.batch_number,
+          batch_no: r.batch_number
+        }
+      ];
+    }
+  }
+
   res.json({ success: true, receipts });
 });
 
@@ -99,7 +143,7 @@ router.get('/receipts/:id', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCO
   }
 
   const receipt = db.prepare(`
-    SELECT wr.*, w.warehouse_name, w.warehouse_code, p.product_name, p.unit, p.product_code,
+    SELECT wr.*, wr.batch_number as batch_no, w.warehouse_name, w.warehouse_code, p.product_name, p.unit, p.product_code,
            u.full_name as receiver_name,
            u.full_name as received_by_name,
            wr.receipt_date as supply_date
@@ -114,17 +158,42 @@ router.get('/receipts/:id', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCO
     return res.status(404).json({ success: false, message: 'سند الاستلام غير موجود' });
   }
 
-  // format items array for UI
-  receipt.items = [
-    {
-      product_id: receipt.product_id,
-      product_code: receipt.product_code,
-      product_name: receipt.product_name,
-      quantity_received: receipt.quantity,
-      unit: receipt.unit,
-      batch_number: receipt.batch_number
-    }
-  ];
+  const baseMatch = String(receipt.receipt_no || '').match(/^(RCP-\d{8}-\d{4})-\d+$/);
+  if (baseMatch) {
+    const baseNo = baseMatch[1];
+    const siblings = db.prepare(`
+      SELECT wr.id, wr.receipt_no, wr.product_id, wr.quantity, wr.batch_number,
+             p.product_name, p.product_code, p.unit
+      FROM WAREHOUSE_RECEIPTS wr
+      JOIN PRODUCTS p ON wr.product_id = p.id
+      WHERE wr.receipt_no = ? OR wr.receipt_no LIKE ?
+      ORDER BY wr.id ASC
+    `).all(baseNo, `${baseNo}-%`) as any[];
+
+    receipt.items = siblings.map((s) => ({
+      product_id: s.product_id,
+      product_code: s.product_code,
+      product_name: s.product_name,
+      quantity: s.quantity,
+      quantity_received: s.quantity,
+      unit: s.unit,
+      batch_number: s.batch_number,
+      batch_no: s.batch_number
+    }));
+  } else {
+    receipt.items = [
+      {
+        product_id: receipt.product_id,
+        product_code: receipt.product_code,
+        product_name: receipt.product_name,
+        quantity: receipt.quantity,
+        quantity_received: receipt.quantity,
+        unit: receipt.unit,
+        batch_number: receipt.batch_number,
+        batch_no: receipt.batch_number
+      }
+    ];
+  }
 
   res.json({ success: true, receipt });
 });
@@ -134,7 +203,8 @@ router.get('/receipts/:id', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ACCO
 // Enforces BR-04: Supply records warehouse receipt and increments stock atomically
 // -------------------------------------------------------------
 router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-  const { warehouseId, productId, quantity, supplierName, receiptDate, supplyDate, batchNumber, notes, items } = req.body;
+  const { warehouseId, productId, quantity, supplierName, receiptDate, supplyDate, batchNumber, batchNo, notes, items } = req.body;
+  const resolvedBatchNumber = batchNumber !== undefined ? batchNumber : batchNo;
 
   const finalSupplier = (supplierName || '').trim();
   if (!finalSupplier) {
@@ -180,7 +250,7 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ADMIN')
     itemsToProcess.push({
       productId: Number(productId),
       quantity: qty,
-      batchNumber: (batchNumber || '').trim() || undefined
+      batchNumber: (resolvedBatchNumber || '').trim() || undefined
     });
   } else {
     return res.status(400).json({ success: false, message: 'يرجى تحديد الأصناف والكميات المطلوب توريدها للمستودع' });
@@ -194,7 +264,7 @@ router.post('/receipts', authenticate, requireRoles('WAREHOUSE_KEEPER', 'ADMIN')
     }
   }
 
-  const recDate = receiptDate || supplyDate || new Date().toISOString().slice(0, 10);
+  const recDate = receiptDate || supplyDate || getLocalTodayDateString();
   let firstReceiptId: number | bigint = 0;
   let totalQty = 0;
 

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { db } from '../db.js';
 import { authenticate, requireRoles, AuthenticatedRequest, createNotification } from '../auth.js';
+import { getLocalTodayDateString, getLocalTodayCompactStamp } from '../../src/utils/date.js';
 
 const router = Router();
 
@@ -24,7 +25,7 @@ export function isValidRequisitionTransition(currentStatus: string, nextStatus: 
 
 // Generate distinct Request Number: REQ-PREFIX-YYYYMMDD-XXXX (verified unique in DB)
 function generateRequestNo(type: string): string {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const dateStr = getLocalTodayCompactStamp();
   const prefixMap: Record<string, string> = {
     CHICKS: 'CHK',
     FEED: 'FED',
@@ -47,7 +48,7 @@ function generateRequestNo(type: string): string {
 // -------------------------------------------------------------
 // GET /requisitions - List with search and filtering
 // -------------------------------------------------------------
-router.get('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'WAREHOUSE_KEEPER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const { type, status, requesterId, farmId, startDate, endDate, search } = req.query;
 
   let query = `
@@ -113,7 +114,7 @@ router.get('/', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'
 // -------------------------------------------------------------
 // GET /requisitions/:id - Get Details + Items (REQUISITION -> REQUISITION_ITEMS)
 // -------------------------------------------------------------
-router.get('/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'WAREHOUSE_KEEPER', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const reqId = Number(req.params.id);
   if (!Number.isInteger(reqId) || reqId <= 0) {
     return res.status(400).json({ success: false, message: 'معرف طلب الاحتياج غير صالح' });
@@ -145,7 +146,7 @@ router.get('/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADM
   }
 
   const items = db.prepare(`
-    SELECT id, item_type, item_ref_id, item_name, quantity, unit, specifications
+    SELECT id, item_type, item_ref_id, item_name, quantity, unit, specifications, specifications as notes
     FROM REQUISITION_ITEMS
     WHERE requisition_id = ?
     ORDER BY id ASC
@@ -160,7 +161,7 @@ router.get('/:id', authenticate, requireRoles('SUPERVISOR', 'PROD_MANAGER', 'ADM
 // -------------------------------------------------------------
 router.post('/', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
   const {
-    reqType,
+    reqType: rawReqType,
     farmId,
     houseId,
     flockId,
@@ -170,6 +171,17 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: Authen
     notes,
     items
   } = req.body;
+
+  const reqTypeAliasMap: Record<string, string> = {
+    CHICKS: 'CHICKS',
+    FEED: 'FEED',
+    TREATMENT: 'TREATMENT',
+    MEDICINE: 'TREATMENT',
+    SUPPLY: 'SUPPLY',
+    SUPPLIES: 'SUPPLY',
+    MAINTENANCE: 'SUPPLY'
+  };
+  const reqType = rawReqType ? (reqTypeAliasMap[String(rawReqType)] || String(rawReqType)) : '';
 
   // Validation
   if (!reqType || !['CHICKS', 'FEED', 'TREATMENT', 'SUPPLY'].includes(reqType)) {
@@ -226,7 +238,7 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: Authen
   }
 
   const initialStatus = status === 'DRAFT' ? 'DRAFT' : 'SUBMITTED';
-  const finalDate = requestDate || new Date().toISOString().slice(0, 10);
+  const finalDate = requestDate || getLocalTodayDateString();
 
   try {
     db.exec('BEGIN TRANSACTION;');
@@ -266,7 +278,7 @@ router.post('/', authenticate, requireRoles('SUPERVISOR', 'ADMIN'), (req: Authen
         String(itm.itemName).trim(),
         Number(itm.quantity),
         itm.unit || 'وحدة',
-        itm.specifications || null
+        itm.specifications || itm.notes || null
       );
     }
 
@@ -358,9 +370,21 @@ router.post('/:id/review', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), 
     return res.status(400).json({ success: false, message: 'معرف طلب الاحتياج غير صالح' });
   }
 
-  const { decision, reviewNotes } = req.body; // decision: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
+  const { decision: rawDecision, action: rawAction, reviewNotes } = req.body;
+  const actionMap: Record<string, string> = {
+    START_REVIEW: 'UNDER_REVIEW',
+    UNDER_REVIEW: 'UNDER_REVIEW',
+    APPROVE: 'APPROVED',
+    APPROVED: 'APPROVED',
+    REJECT: 'REJECTED',
+    REJECTED: 'REJECTED',
+    COMPLETE: 'COMPLETED',
+    COMPLETED: 'COMPLETED'
+  };
+  const inputDecision = rawDecision || rawAction;
+  const decision = typeof inputDecision === 'string' ? (actionMap[inputDecision] || inputDecision) : '';
 
-  if (!decision || typeof decision !== 'string' || !['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'COMPLETED'].includes(decision)) {
+  if (!decision || !['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'COMPLETED'].includes(decision)) {
     return res.status(400).json({ success: false, message: 'قرار المراجعة غير صالح (يجب أن يكون UNDER_REVIEW أو APPROVED أو REJECTED أو COMPLETED)' });
   }
 
@@ -378,7 +402,7 @@ router.post('/:id/review', authenticate, requireRoles('PROD_MANAGER', 'ADMIN'), 
     });
   }
 
-  const reviewDate = new Date().toISOString().slice(0, 10);
+  const reviewDate = getLocalTodayDateString();
   const cleanNotes = typeof reviewNotes === 'string' && reviewNotes.trim().length > 0 ? reviewNotes.trim() : null;
 
   try {

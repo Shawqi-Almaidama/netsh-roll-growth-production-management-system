@@ -34,8 +34,11 @@ function normalizeDailyRecord(r: any) {
     cull_eggs: cull,
     net_trays: netTrays,
     mortality_cause: r.mortality_cause || 'طبيعي',
+    water_consumed_l: Number(r.water_consumed_l ?? r.water_consumed_liters ?? 0),
+    water_consumed_liters: Number(r.water_consumed_liters ?? r.water_consumed_l ?? 0),
     avg_bird_weight_g: r.avg_bird_weight_g ?? r.avg_weight_g ?? 0,
     avg_weight_g: r.avg_weight_g ?? r.avg_bird_weight_g ?? 0,
+    flock_name: r.flock_name || r.breed || '',
     recorded_by_name: r.recorded_by_name || r.supervisor_name || 'مشرف الإنتاج',
     supervisor_name: r.supervisor_name || r.recorded_by_name || 'مشرف الإنتاج'
   };
@@ -135,18 +138,42 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data)
     }),
-  getHouses: () => request<{ success: boolean; houses: any[] }>('/production/houses'),
+  getHouses: async () => {
+    const res = await request<{ success: boolean; houses: any[] }>('/production/houses');
+    return {
+      ...res,
+      houses: (res.houses || []).map((h: any) => ({
+        ...h,
+        active_flock_count: Number(h.active_flock_count ?? h.active_bird_count ?? 0),
+        active_bird_count: Number(h.active_bird_count ?? h.active_flock_count ?? 0)
+      }))
+    };
+  },
   createHouse: (data: any) =>
     request<{ success: boolean; message: string; houseId: number }>('/production/houses', {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify({
+        ...data,
+        houseType: data.houseType || 'إنتاج بيض (بياض)'
+      })
     }),
   updateHouse: (id: number, data: any) =>
     request<{ success: boolean; message: string }>(`/production/houses/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
-  getFlocks: () => request<{ success: boolean; flocks: any[] }>('/production/flocks'),
+  getFlocks: async () => {
+    const res = await request<{ success: boolean; flocks: any[] }>('/production/flocks');
+    return {
+      ...res,
+      flocks: (res.flocks || []).map((f: any) => ({
+        ...f,
+        initial_count: Number(f.initial_count ?? 0),
+        current_count: Number(f.current_count ?? f.current_bird_count ?? 0),
+        current_bird_count: Number(f.current_bird_count ?? f.current_count ?? 0)
+      }))
+    };
+  },
   createFlock: (data: any) =>
     request<{ success: boolean; message: string; flockId: number }>('/production/flocks', {
       method: 'POST',
@@ -173,7 +200,7 @@ export const api = {
   recordDailyProduction: (data: any) => {
     const payload = {
       ...data,
-      productionQuantity: data.productionQuantity ?? data.eggTrays ?? 0,
+      productionQuantity: data.productionQuantity ?? data.prodEggTrays ?? data.eggTrays ?? 0,
       avgWeightG: data.avgWeightG ?? data.avgBirdWeightG ?? 0
     };
     return request<{ success: boolean; message: string; recordId: number }>('/production/daily', {
@@ -184,7 +211,7 @@ export const api = {
   createDailyProduction: (data: any) => {
     const payload = {
       ...data,
-      productionQuantity: data.productionQuantity ?? data.eggTrays ?? 0,
+      productionQuantity: data.productionQuantity ?? data.prodEggTrays ?? data.eggTrays ?? 0,
       avgWeightG: data.avgWeightG ?? data.avgBirdWeightG ?? 0
     };
     return request<{ success: boolean; message: string; recordId: number }>('/production/daily', {
@@ -213,11 +240,24 @@ export const api = {
     request<{ success: boolean; message: string; status: string }>(`/requisitions/${id}/submit`, {
       method: 'POST'
     }),
-  reviewRequisition: (id: number, data: { decision: string; reviewNotes?: string }) =>
-    request<{ success: boolean; message: string; status: string }>(`/requisitions/${id}/review`, {
+  reviewRequisition: (id: number, data: { decision?: string; action?: string; reviewNotes?: string }) => {
+    const actionToDecisionMap: Record<string, string> = {
+      START_REVIEW: 'UNDER_REVIEW',
+      UNDER_REVIEW: 'UNDER_REVIEW',
+      APPROVE: 'APPROVED',
+      APPROVED: 'APPROVED',
+      REJECT: 'REJECTED',
+      REJECTED: 'REJECTED',
+      COMPLETE: 'COMPLETED',
+      COMPLETED: 'COMPLETED'
+    };
+    const raw = data.decision || data.action || '';
+    const decision = actionToDecisionMap[raw] || raw;
+    return request<{ success: boolean; message: string; status: string }>(`/requisitions/${id}/review`, {
       method: 'POST',
-      body: JSON.stringify(data)
-    }),
+      body: JSON.stringify({ ...data, decision })
+    });
+  },
 
   // Products & Customers
   getProducts: (filters: Record<string, any> = {}) => {

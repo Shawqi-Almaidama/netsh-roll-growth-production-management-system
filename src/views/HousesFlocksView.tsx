@@ -195,6 +195,16 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
     MAINTENANCE: { label: 'صيانة وتجهيز', variant: 'rose' }
   };
 
+  const flockStatusMap: Record<
+    string,
+    { label: string; variant: 'emerald' | 'amber' | 'slate' | 'rose' }
+  > = {
+    ACTIVE: { label: 'قطيع نشط', variant: 'emerald' },
+    DEPLETED: { label: 'مستبعد / منتهي الدورة', variant: 'slate' },
+    SOLD: { label: 'مباع', variant: 'amber' },
+    TRANSFERRED: { label: 'منقول', variant: 'slate' }
+  };
+
   return (
     <div id="houses-flocks-view" className="space-y-6 pb-12" dir="rtl">
       {/* Page Header */}
@@ -287,7 +297,7 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
           <span className="text-xs text-slate-500 block">إجمالي الطيور الحية الفعلية</span>
           <span className="text-xl sm:text-2xl font-black text-emerald-700 mt-1 block">
             {houses
-              .reduce((acc, h) => acc + (h.active_bird_count || 0), 0)
+              .reduce((acc, h) => acc + (h.active_flock_count ?? h.active_bird_count ?? 0), 0)
               .toLocaleString('ar-EG')}{' '}
             طائر
           </span>
@@ -350,6 +360,7 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
             <option value="ACTIVE">نشط وتشغيلي</option>
             <option value="EMPTY">فارغ متاح للتسكين</option>
             <option value="CLEANING">تطهير وتعقيم</option>
+            <option value="MAINTENANCE">صيانة وتجهيز</option>
           </select>
         </div>
       </div>
@@ -368,9 +379,11 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
               label: house.current_status,
               variant: 'slate'
             };
+            const activeBirds = house.active_flock_count ?? house.active_bird_count ?? 0;
+            const houseCap = house.capacity || 0;
             const occupancyRate =
-              house.capacity > 0
-                ? Math.min(100, Math.round(((house.active_bird_count || 0) / house.capacity) * 100))
+              houseCap > 0
+                ? Math.min(100, Math.round((activeBirds / houseCap) * 100))
                 : 0;
 
             return (
@@ -412,7 +425,7 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
                       <div className="flex items-center justify-between">
                         <span className="text-slate-600 font-medium">العدد الحي الحالي:</span>
                         <span className="font-mono font-black text-emerald-700">
-                          {(house.active_bird_count || 0).toLocaleString('ar-EG')} طائر
+                          {activeBirds.toLocaleString('ar-EG')} طائر
                         </span>
                       </div>
                     </div>
@@ -427,8 +440,8 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-500">نسبة الإشغال الفعلي:</span>
                       <span className="font-mono font-bold text-slate-700">
-                        {occupancyRate}% ({(house.active_bird_count || 0).toLocaleString('ar-EG')} /{' '}
-                        {house.capacity.toLocaleString('ar-EG')})
+                        {occupancyRate}% ({activeBirds.toLocaleString('ar-EG')} /{' '}
+                        {houseCap.toLocaleString('ar-EG')})
                       </span>
                     </div>
                     <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -483,8 +496,8 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
                     <span className="font-mono font-bold text-slate-900 text-sm">{fl.flock_code}</span>
                     <span className="mr-2 text-slate-600 font-semibold">{fl.breed}</span>
                   </div>
-                  <Badge variant={fl.status === 'ACTIVE' ? 'emerald' : 'slate'}>
-                    {fl.status === 'ACTIVE' ? 'قطيع نشط' : fl.status}
+                  <Badge variant={(flockStatusMap[fl.status] || { variant: 'slate' }).variant}>
+                    {(flockStatusMap[fl.status] || { label: fl.status }).label}
                   </Badge>
                 </div>
 
@@ -502,13 +515,13 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
                   <div>
                     <span className="text-[10px] text-slate-400 block">العدد الأولي</span>
                     <span className="font-mono font-bold text-slate-800">
-                      {fl.initial_count.toLocaleString('ar-EG')} طائر
+                      {(fl.initial_count ?? 0).toLocaleString('ar-EG')} طائر
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-emerald-700 block">العدد الحي الحالي</span>
                     <span className="font-mono font-black text-emerald-800">
-                      {fl.current_bird_count.toLocaleString('ar-EG')} طائر
+                      {(fl.current_count ?? fl.current_bird_count ?? 0).toLocaleString('ar-EG')} طائر
                     </span>
                   </div>
                 </div>
@@ -545,14 +558,14 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
                     {fl.entry_date}
                   </td>
                   <td className="py-3 px-4 font-mono text-slate-700 whitespace-nowrap">
-                    {fl.initial_count.toLocaleString('ar-EG')} طائر
+                    {(fl.initial_count ?? 0).toLocaleString('ar-EG')} طائر
                   </td>
                   <td className="py-3 px-4 font-mono font-bold text-emerald-700 whitespace-nowrap">
-                    {fl.current_bird_count.toLocaleString('ar-EG')} طائر
+                    {(fl.current_count ?? fl.current_bird_count ?? 0).toLocaleString('ar-EG')} طائر
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap">
-                    <Badge variant={fl.status === 'ACTIVE' ? 'emerald' : 'slate'}>
-                      {fl.status === 'ACTIVE' ? 'قطيع نشط' : fl.status}
+                    <Badge variant={(flockStatusMap[fl.status] || { variant: 'slate' }).variant}>
+                      {(flockStatusMap[fl.status] || { label: fl.status }).label}
                     </Badge>
                   </td>
                 </tr>
@@ -617,6 +630,22 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
               />
             </div>
             <div>
+              <label className="block font-bold text-slate-700 mb-1">نوع الهنجر التشغيلي *</label>
+              <select
+                required
+                value={newHouse.houseType}
+                onChange={(e) => setNewHouse({ ...newHouse, houseType: e.target.value })}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 min-h-[42px]"
+              >
+                <option value="بياض">إنتاج بيض (بياض)</option>
+                <option value="تحضين">تحضين ورعاية</option>
+                <option value="أمهات">أمهات</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
               <label className="block font-bold text-slate-700 mb-1">السعة الاستيعابية (طائر) *</label>
               <input
                 type="number"
@@ -628,22 +657,21 @@ export const HousesFlocksView: React.FC<{ onBack?: () => void }> = ({ onBack }) 
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono min-h-[42px]"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">المشرف الميداني المسؤول</label>
-            <select
-              value={newHouse.supervisorId}
-              onChange={(e) => setNewHouse({ ...newHouse, supervisorId: e.target.value })}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 min-h-[42px]"
-            >
-              <option value="">— اختيار المشرف —</option>
-              {supervisors.map((s) => (
-                <option key={s.id} value={String(s.id)}>
-                  {s.full_name} (@{s.username})
-                </option>
-              ))}
-            </select>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">المشرف الميداني المسؤول</label>
+              <select
+                value={newHouse.supervisorId}
+                onChange={(e) => setNewHouse({ ...newHouse, supervisorId: e.target.value })}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 min-h-[42px]"
+              >
+                <option value="">— اختيار المشرف —</option>
+                {supervisors.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.full_name} (@{s.username})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>

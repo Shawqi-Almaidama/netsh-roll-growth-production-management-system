@@ -4,10 +4,13 @@ import { authenticate, requireRoles, AuthenticatedRequest } from '../auth.js';
 
 const router = Router();
 
+// Canonical roles permitted to access operational & financial reports (R-01 to R-05)
+// Matches ROLES table (VIEW_REPORTS permission) and frontend viewPermissions['reports']
+export const REPORT_ALLOWED_ROLES = ['ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'] as const;
+
 // تقرير الإنتاج اليومي (R-01)
-router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/daily-production', authenticate, requireRoles(...REPORT_ALLOWED_ROLES), (req: AuthenticatedRequest, res: Response) => {
   const { startDate, endDate, flockId, houseId } = req.query;
-  const user = req.user!;
 
   let query = `
     SELECT dp.id, dp.record_date, dp.production_quantity, dp.unit,
@@ -24,12 +27,6 @@ router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MANAGE
     WHERE 1=1
   `;
   const params: any[] = [];
-
-  // Supervisors only see their own operational entries
-  if (user.roleCode === 'SUPERVISOR') {
-    query += ' AND dp.supervisor_id = ?';
-    params.push(user.id);
-  }
 
   if (startDate) {
     query += ' AND dp.record_date >= ?';
@@ -66,9 +63,8 @@ router.get('/daily-production', authenticate, requireRoles('ADMIN', 'PROD_MANAGE
 });
 
 // تقرير طلبات الاحتياج (R-02)
-router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/requisitions', authenticate, requireRoles(...REPORT_ALLOWED_ROLES), (req: AuthenticatedRequest, res: Response) => {
   const { type, status, startDate, endDate } = req.query;
-  const user = req.user!;
 
   let query = `
     SELECT r.id, r.request_no, r.req_type, r.request_date, r.status, r.urgency,
@@ -121,7 +117,7 @@ router.get('/requisitions', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 
 });
 
 // تقرير فواتير المبيعات (R-03)
-router.get('/sales', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+router.get('/sales', authenticate, requireRoles(...REPORT_ALLOWED_ROLES), (req: AuthenticatedRequest, res: Response) => {
   const { customerId, status, startDate, endDate } = req.query;
 
   let query = `
@@ -171,7 +167,7 @@ router.get('/sales', authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUN
 });
 
 // تقرير التوريد للمخازن (R-04)
-router.get(['/warehouse-receipts', '/warehouse-supply'], authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+router.get(['/warehouse-receipts', '/warehouse-supply'], authenticate, requireRoles(...REPORT_ALLOWED_ROLES), (req: AuthenticatedRequest, res: Response) => {
   const { warehouseId, productId, startDate, endDate } = req.query;
 
   let query = `
@@ -218,7 +214,7 @@ router.get(['/warehouse-receipts', '/warehouse-supply'], authenticate, requireRo
 });
 
 // تقرير المنتجات والمخزون (R-05)
-router.get(['/products-inventory', '/products'], authenticate, requireRoles('ADMIN', 'PROD_MANAGER', 'ACCOUNTANT'), (req: AuthenticatedRequest, res: Response) => {
+router.get(['/products-inventory', '/products'], authenticate, requireRoles(...REPORT_ALLOWED_ROLES), (req: AuthenticatedRequest, res: Response) => {
   const { category, lowStockOnly } = req.query;
 
   let query = `
